@@ -461,13 +461,22 @@ void *allocobj(size_t sz);
 #define allocobj(nb)  malloc(nb)
 #endif
 
+#define jl_typeof(v) ((jl_type_t*)(((uptrint_t)((jl_value_t*)(v))->type)&~3UL))
+
+// mark value as referenced from the heap
+static inline jl_value_t *jl_referenced(void *v)
+{
+    *((uptrint_t*)&((jl_value_t*)v)->type) |= 0x2UL;
+    return (jl_value_t*)v;
+}
+
 #define jl_tupleref(t,i) (((jl_value_t**)(t))[2+(i)])
-#define jl_tupleset(t,i,x) ((((jl_value_t**)(t))[2+(i)])=(jl_value_t*)(x))
+#define jl_tupleset(t,i,x) ((((jl_value_t**)(t))[2+(i)])=jl_referenced((jl_value_t*)(x)))
 #define jl_t0(t) jl_tupleref(t,0)
 #define jl_t1(t) jl_tupleref(t,1)
 
 #define jl_cellref(a,i) (((jl_value_t**)((jl_array_t*)a)->data)[(i)])
-#define jl_cellset(a,i,x) ((((jl_value_t**)((jl_array_t*)a)->data)[(i)])=((jl_value_t*)(x)))
+#define jl_cellset(a,i,x) ((((jl_value_t**)((jl_array_t*)a)->data)[(i)])=jl_referenced(((jl_value_t*)(x))))
 
 #define jl_exprarg(e,n) jl_cellref(((jl_expr_t*)(e))->args,n)
 
@@ -485,7 +494,6 @@ void *allocobj(size_t sz);
 #define jl_tparam0(t) jl_tupleref(((jl_tag_type_t*)(t))->parameters, 0)
 #define jl_tparam1(t) jl_tupleref(((jl_tag_type_t*)(t))->parameters, 1)
 
-#define jl_typeof(v) (((jl_value_t*)(v))->type)
 #define jl_typeis(v,t) (jl_typeof(v)==(jl_type_t*)(t))
 
 #define jl_is_null(v)        (((jl_value_t*)(v)) == ((jl_value_t*)jl_null))

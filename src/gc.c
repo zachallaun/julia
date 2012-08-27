@@ -107,6 +107,7 @@ static htable_t obj_counts;
 
 #ifdef GC_FINAL_STATS
 static double total_gc_time=0;
+static double total_mark_time=0;
 static size_t total_freed_bytes=0;
 #endif
 
@@ -430,7 +431,8 @@ static jl_value_t **mark_stack = NULL;
 static size_t mark_stack_size = 0;
 static size_t mark_sp = 0;
 
-#define gc_typeof(v) ((jl_value_t*)(((uptrint_t)jl_typeof(v))&~1UL))
+//#define gc_typeof(v) ((jl_value_t*)(((uptrint_t)jl_typeof(v))&~1UL))
+#define gc_typeof(v) jl_typeof(v)
 
 static void push_root(jl_value_t *v)
 {
@@ -703,6 +705,9 @@ void jl_gc_collect(void)
         double t0 = clock_now();
 #endif
         gc_mark();
+#if defined(GC_FINAL_STATS)
+        total_mark_time += (clock_now()-t0);
+#endif
 #ifdef GCTIME
         JL_PRINTF(JL_STDERR, "mark time %.3f ms\n", (clock_now()-t0)*1000);
 #endif
@@ -728,15 +733,31 @@ void jl_gc_collect(void)
         print_obj_profile();
         htable_reset(&obj_counts, 0);
 #endif
-
+        /*
+        double rat = (double)collect_interval/(double)freed_bytes;
+        if (rat > 2.2) {
+            double ci = rat * (double)collect_interval;
+            if (ci > max_collect_interval)
+                collect_interval = max_collect_interval;
+            else if (ci < default_collect_interval)
+                collect_interval = default_collect_interval;
+            else
+                collect_interval = ci;
+        }
+        else {
+            collect_interval = default_collect_interval;
+        }
+        */
         // tune collect interval based on current live ratio
-        if (freed_bytes < ((2*collect_interval)/5)) {
+
+        if (freed_bytes <= (2*collect_interval)/5 + 2*GC_PAGE_SZ) {
             if (collect_interval <= (2*max_collect_interval)/5)
                 collect_interval = (5*collect_interval)/2;
         }
         else {
             collect_interval = default_collect_interval;
         }
+
     }
 }
 
@@ -811,8 +832,9 @@ void print_gc_stats(void)
     malloc_stats();
     double ptime = clock_now()-process_t0;
     ios_printf(ios_stderr, "exec time\t%.5f sec\n", ptime);
-    ios_printf(ios_stdout, "gc time  \t%.5f sec (%2.1f%%)\n", total_gc_time,
-               (total_gc_time/ptime)*100);
+    ios_printf(ios_stdout, "gc time  \t%.5f sec (%2.1f%%), %.5f sec mark\n",
+               total_gc_time, (total_gc_time/ptime)*100,
+               total_mark_time);
     struct mallinfo mi = mallinfo();
     ios_printf(ios_stdout, "malloc size\t%d MB\n", mi.uordblks/1024/1024);
     ios_printf(ios_stdout, "total freed\t%llu b\n", total_freed_bytes);

@@ -154,7 +154,7 @@ jl_value_t *jl_set_nth_field(jl_value_t *v, size_t i, jl_value_t *rhs)
     jl_struct_type_t *st = (jl_struct_type_t*)jl_typeof(v);
     size_t offs = jl_field_offset(st,i) + sizeof(void*);
     if (st->fields[i].isptr) {
-        *(jl_value_t**)((char*)v + offs) = rhs;
+        *(jl_value_t**)((char*)v + offs) = jl_referenced(rhs);
     }
     else {
         jl_assign_bits((char*)v + offs, rhs);
@@ -173,7 +173,7 @@ DLLEXPORT jl_value_t *jl_new_struct(jl_struct_type_t *type, ...)
     for(i=0; i < nf; i++) {
         jl_set_nth_field(jv, i, va_arg(args, jl_value_t*));
     }
-    if (nf == 0) type->instance = jv;
+    if (nf == 0) type->instance = jl_referenced(jv);
     va_end(args);
     return jv;
 }
@@ -184,7 +184,7 @@ DLLEXPORT jl_value_t *jl_new_struct_uninit(jl_struct_type_t *type)
     size_t nf = jl_tuple_len(type->names);
     jl_value_t *jv = newstruct(type);
     memset(&((void**)jv)[1], 0, type->size);
-    if (nf == 0) type->instance = jv;
+    if (nf == 0) type->instance = jl_referenced(jv);
     return jv;
 }
 
@@ -246,7 +246,7 @@ jl_tuple_t *jl_alloc_tuple(size_t n)
     jl_tuple_t *jv = jl_alloc_tuple_uninit(n);
     size_t i;
     for(i=0; i < n; i++) {
-        jl_tupleset(jv, i, NULL);
+        (((jl_value_t**)jv)[2+i]) = NULL;
     }
     return jv;
 }
@@ -283,8 +283,8 @@ DLLEXPORT jl_function_t *jl_new_closure(jl_fptr_t fptr, jl_value_t *env,
     jl_function_t *f = (jl_function_t*)alloc_4w();
     f->type = (jl_type_t*)jl_function_type;
     f->fptr = (fptr!=NULL ? fptr : linfo->fptr);
-    f->env = env;
-    f->linfo = linfo;
+    f->env = env!=NULL ? jl_referenced(env) : env;
+    f->linfo = linfo!=NULL ? jl_referenced(linfo) : linfo;
     return f;
 }
 
@@ -294,7 +294,7 @@ jl_lambda_info_t *jl_new_lambda_info(jl_value_t *ast, jl_tuple_t *sparams)
     jl_lambda_info_t *li =
         (jl_lambda_info_t*)newobj((jl_type_t*)jl_lambda_info_type,
                                   LAMBDA_INFO_NW);
-    li->ast = ast;
+    li->ast = jl_referenced(ast);
     li->file = (jl_value_t*)null_sym;
     li->line = 0;
     if (ast != NULL && jl_is_expr(ast)) {
@@ -305,7 +305,7 @@ jl_lambda_info_t *jl_new_lambda_info(jl_value_t *ast, jl_tuple_t *sparams)
         }
     }
     li->module = jl_current_module;
-    li->sparams = sparams;
+    li->sparams = jl_referenced(sparams);
     li->tfunc = (jl_value_t*)jl_null;
     li->fptr = &jl_trampoline;
     li->roots = NULL;
@@ -438,14 +438,15 @@ jl_tag_type_t *jl_new_tagtype(jl_value_t *name, jl_tag_type_t *super,
         tn = jl_new_typename((jl_sym_t*)name);
     jl_tag_type_t *t = (jl_tag_type_t*)newobj((jl_type_t*)jl_tag_kind,
                                               TAG_TYPE_NW);
-    t->name = tn;
+    t->name = jl_referenced(tn);
+    if (super) jl_referenced(super);
     t->super = super;
-    t->parameters = parameters;
+    t->parameters = jl_referenced(parameters);
     t->fptr = NULL;
     t->env = NULL;
     t->linfo = NULL;
     if (t->name->primary == NULL)
-        t->name->primary = (jl_value_t*)t;
+        t->name->primary = jl_referenced(t);
     JL_GC_POP();
     return t;
 }
@@ -487,6 +488,7 @@ void jl_add_constructors(jl_struct_type_t *t)
                                              sparams);
             cfactory->linfo->ast = jl_prepare_ast(cfactory->linfo,
                                                   cfactory->linfo->sparams);
+            jl_referenced(cfactory->linfo->ast);
             
             // call user-defined constructor factory on (type,)
             jl_value_t *cfargs[1] = { (jl_value_t*)t };
@@ -545,11 +547,13 @@ jl_struct_type_t *jl_new_struct_type(jl_sym_t *name, jl_tag_type_t *super,
     jl_typename_t *tn = jl_new_typename(name);
     JL_GC_PUSH(&tn);
     jl_struct_type_t *t = jl_new_uninitialized_struct_type(fnames->length);
-    t->name = tn;
-    t->name->primary = (jl_value_t*)t;
+    t->name = jl_referenced(tn);
+    t->name->primary = jl_referenced(t);
+    if (super) jl_referenced(super);
     t->super = super;
-    t->parameters = parameters;
-    t->names = fnames;
+    t->parameters = jl_referenced(parameters);
+    t->names = jl_referenced(fnames);
+    if (ftypes) jl_referenced(ftypes);
     t->types = ftypes;
     t->fptr = jl_f_ctor_trampoline;
     t->env = (jl_value_t*)t;
@@ -594,10 +598,10 @@ jl_bits_type_t *jl_new_bits_type(jl_value_t *name, jl_tag_type_t *super,
             tn = (jl_typename_t*)name;
         else
             tn = jl_new_typename((jl_sym_t*)name);
-        t->name = tn;
+        t->name = jl_referenced(tn);
     }
-    t->super = super;
-    t->parameters = parameters;
+    t->super = jl_referenced(super);
+    t->parameters = jl_referenced(parameters);
     t->nbits = nbits;
     if (!jl_is_leaf_type((jl_value_t*)t))
         t->uid = 0;
@@ -607,7 +611,7 @@ jl_bits_type_t *jl_new_bits_type(jl_value_t *name, jl_tag_type_t *super,
     t->env = NULL;
     t->linfo = NULL;
     if (t->name->primary == NULL)
-        t->name->primary = (jl_value_t*)t;
+        t->name->primary = jl_referenced(t);
     JL_GC_POP();
     return t;
 }
@@ -617,7 +621,7 @@ jl_uniontype_t *jl_new_uniontype(jl_tuple_t *types)
     jl_uniontype_t *t = (jl_uniontype_t*)newobj((jl_type_t*)jl_union_kind, 1);
     // don't make unions of 1 type; Union(T)==T
     assert(jl_tuple_len(types) != 1);
-    t->types = types;
+    t->types = jl_referenced(types);
     return t;
 }
 
@@ -626,8 +630,8 @@ jl_uniontype_t *jl_new_uniontype(jl_tuple_t *types)
 jl_typector_t *jl_new_type_ctor(jl_tuple_t *params, jl_type_t *body)
 {
     jl_typector_t *tc = (jl_typector_t*)newobj((jl_type_t*)jl_typector_type,2);
-    tc->parameters = params;
-    tc->body = body;
+    tc->parameters = jl_referenced(params);
+    tc->body = jl_referenced(body);
     return (jl_typector_t*)tc;
 }
 
@@ -796,7 +800,7 @@ jl_expr_t *jl_exprn(jl_sym_t *head, size_t n)
     jl_expr_t *ex = (jl_expr_t*)alloc_4w();
     ex->type = (jl_type_t*)jl_expr_type;
     ex->head = head;
-    ex->args = ar;
+    ex->args = jl_referenced(ar);
     ex->etype = (jl_value_t*)jl_any_type;
     JL_GC_POP();
     return ex;
@@ -814,8 +818,8 @@ JL_CALLABLE(jl_f_new_expr)
     jl_expr_t *ex = (jl_expr_t*)alloc_4w();
     ex->type = (jl_type_t*)jl_expr_type;
     ex->head = (jl_sym_t*)args[0];
-    ex->args = (jl_array_t*)args[1];
-    ex->etype = args[2];
+    ex->args = (jl_array_t*)jl_referenced(args[1]);
+    ex->etype = jl_referenced(args[2]);
     return (jl_value_t*)ex;
 }
 
@@ -824,6 +828,6 @@ JL_CALLABLE(jl_f_new_box)
     JL_NARGS(Box, 1, 1);
     jl_value_t *box = (jl_value_t*)alloc_2w();
     box->type = jl_box_any_type;
-    ((jl_value_t**)box)[1] = args[0];
+    ((jl_value_t**)box)[1] = jl_referenced(args[0]);
     return box;
 }

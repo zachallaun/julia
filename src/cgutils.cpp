@@ -68,9 +68,11 @@ static Value *emit_typeof(Value *p)
     if (p->getType() == jl_pvalue_llvmt) {
         Value *tt = builder.CreateBitCast(p, jl_ppvalue_llvmt);
         tt = builder.
-            CreateLoad(builder.CreateGEP(tt,ConstantInt::get(T_size,0)),
-                       false);
-        return tt;
+            CreateLoad(builder.CreateGEP(tt,ConstantInt::get(T_size,0)),false);
+        Value *asbits = builder.CreatePtrToInt(tt, T_size);
+        Value *masked = builder.CreateAnd(asbits,
+                                          ConstantInt::get(T_size,~3UL));
+        return builder.CreateIntToPtr(masked, jl_pvalue_llvmt);
     }
     return literal_pointer_val(llvm_type_to_julia(p->getType()));
 }
