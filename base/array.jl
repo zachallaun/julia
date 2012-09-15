@@ -165,7 +165,7 @@ function fill!{T<:Union(Int8,Uint8)}(a::Array{T}, x::Integer)
     ccall(:memset, Void, (Ptr{T}, Int32, Int), a, x, length(a))
     return a
 end
-function fill!{T<:Union(Integer,Float)}(a::Array{T}, x)
+function fill!{T<:Union(Integer,FloatingPoint)}(a::Array{T}, x)
     if isa(T,BitsKind) && convert(T,x) == 0
         ccall(:memset, Ptr{T}, (Ptr{T}, Int32, Int32), a,0,length(a)*sizeof(T))
     else
@@ -728,10 +728,14 @@ function append!{T}(a::Array{T,1}, items::Array{T,1})
 end
 
 function grow(a::Vector, n::Integer)
-    if n < -length(a)
-        throw(BoundsError())
+    if n > 0
+        ccall(:jl_array_grow_end, Void, (Any, Uint), a, n)
+    else
+        if n < -length(a)
+            throw(BoundsError())
+        end
+        ccall(:jl_array_del_end, Void, (Any, Uint), a, -n)
     end
-    ccall(:jl_array_grow_end, Void, (Any, Uint), a, n)
     return a
 end
 
@@ -1332,8 +1336,6 @@ end
 
 ## Reductions ##
 
-contains(s::Number, n::Number) = (s == n)
-
 areduce{T}(f::Function, A::StridedArray{T}, region::Dimspec, v0) =
     areduce(f,A,region,v0,T)
 
@@ -1425,7 +1427,7 @@ function sum{T}(A::StridedArray{T})
     v
 end
 
-function sum{T<:Float}(A::StridedArray{T})
+function sum{T<:FloatingPoint}(A::StridedArray{T})
     n = length(A)
     if (n == 0)
         return zero(T)
@@ -1444,6 +1446,64 @@ function sum{T<:Float}(A::StridedArray{T})
     end
 
     s + c
+end
+
+# Uses K-B-N summation
+function cumsum{T<:FloatingPoint}(v::StridedVector{T})
+    n = length(v)
+    r = similar(v, n)
+    if n == 0; return r; end
+
+    s = r[1] = v[1]
+    c = zero(T)
+    for i=2:n
+        vi = v[i]
+        t = s + vi
+        if abs(s) >= abs(vi)
+            c += ((s-t) + vi)
+        else
+            c += ((vi-t) + s)
+        end
+        s = t
+        r[i] = s+c
+    end
+    return r
+end
+
+# Uses K-B-N summation
+function cumsum{T<:FloatingPoint}(A::StridedArray{T}, axis::Integer)
+    dimsA = size(A)
+    ndimsA = ndims(A)
+    axis_size = dimsA[axis]
+    axis_stride = 1
+    for i = 1:(axis-1)
+        axis_stride *= size(A,i)
+    end
+
+    if axis_size <= 1
+        return A
+    end
+
+    B = similar(A)
+    C = similar(A)
+
+    for i = 1:length(A)
+        if div(i-1, axis_stride) % axis_size == 0
+            B[i] = A[i]
+            C[i] = zero(T)
+        else
+            s = B[i-axis_stride]
+            Ai = A[i]
+            B[i] = t = s + Ai
+            if abs(s) >= abs(Ai)
+                C[i] = C[i-axis_stride] + ((s-t) + Ai)
+            else
+                C[i] = C[i-axis_stride] + ((Ai-t) + s)
+            end
+        end
+    end
+
+    return B + C
 end
 
 function prod{T}(A::StridedArray{T})
