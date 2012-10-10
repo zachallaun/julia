@@ -98,9 +98,6 @@ gc() = ccall(:jl_gc_collect, Void, ())
 gc_enable() = ccall(:jl_gc_enable, Void, ())
 gc_disable() = ccall(:jl_gc_disable, Void, ())
 
-current_task() = ccall(:jl_get_current_task, Task, ())
-istaskdone(t::Task) = t.done
-
 bytestring(str::ByteString) = str
 
 # return an integer such that object_id(x)==object_id(y) if is(x,y)
@@ -127,14 +124,14 @@ function append_any(xs...)
     i = 1
     for x in xs
         for y in x
-            arrayset(out, i, y)
+            arrayset(out, y, i)
             i += 1
         end
     end
     out
 end
 
-macro thunk(ex); :(()->$esc(ex)); end
+macro thunk(ex); :(()->$(esc(ex))); end
 macro L_str(s); s; end
 
 function compile_hint(f, args::Tuple)

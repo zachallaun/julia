@@ -1,23 +1,7 @@
-## linalg.jl: Basic Linear Algebra interface specifications and
-## specialized matrix types
+## linalg.jl: Some generic Linear Algebra definitions
 
-#
-# This file mostly contains commented functions which are supposed
-# to be defined in type-specific linalg_<type>.jl files.
-#
-# It defines functions in cases where sufficiently few assumptions about
-# storage can be made.
-
-#Ac_mul_B(x::AbstractVector, y::AbstractVector)
-#At_mul_B{T<:Real}(x::AbstractVector{T}, y::AbstractVector{T})
-
-#dot(x::AbstractVector, y::AbstractVector)
-
-#cross(a::AbstractVector, b::AbstractVector)
-
-#(*){T,S}(A::AbstractMatrix{T}, B::AbstractVector{S})
-#(*){T,S}(A::AbstractVector{S}, B::AbstractMatrix{T})
-#(*){T,S}(A::AbstractMatrix{T}, B::AbstractMatrix{S})
+cross(a::Vector, b::Vector) =
+    [a[2]*b[3]-a[3]*b[2], a[3]*b[1]-a[1]*b[3], a[1]*b[2]-a[2]*b[1]]
 
 triu(M::AbstractMatrix) = triu(M,0)
 tril(M::AbstractMatrix) = tril(M,0)
@@ -40,7 +24,9 @@ diag(A::AbstractVector) = error("Perhaps you meant to use diagm().")
 #diagm{T}(v::Union(AbstractVector{T},AbstractMatrix{T}))
 
 function norm(x::AbstractVector, p::Number)
-    if p == Inf
+    if length(x) == 0
+        return zero(eltype(x))
+    elseif p == Inf
         return max(abs(x))
     elseif p == -Inf
         return min(abs(x))
@@ -52,14 +38,17 @@ end
 norm(x::AbstractVector) = sqrt(real(dot(x,x)))
 
 function norm(A::AbstractMatrix, p)
-    if size(A,1) == 1 || size(A,2) == 1
+    m, n = size(A)
+    if m == 0 || n == 0
+        return zero(eltype(A))
+    elseif m == 1 || n == 1
         return norm(reshape(A, numel(A)), p)
     elseif p == 1
         return max(sum(abs(A),1))
     elseif p == 2
-        return max(svd(A)[2])
+        return max(svdvals(A))
     elseif p == Inf
-        max(sum(abs(A),2))
+        return max(sum(abs(A),2))
     elseif p == "fro"
         return sqrt(sum(diag(A'*A)))
     else
@@ -70,6 +59,8 @@ end
 norm(A::AbstractMatrix) = norm(A, 2)
 rank(A::AbstractMatrix, tol::Real) = sum(svdvals(A) .> tol)
 function rank(A::AbstractMatrix)
+    m,n = size(A)
+    if m == 0 || n == 0; return 0; end
     sv = svdvals(A)
     sum(sv .> max(size(A,1),size(A,2))*eps(sv[1]))
 end

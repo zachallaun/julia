@@ -111,7 +111,9 @@ include("combinatorics.jl")
 include("statistics.jl")
 
 # random number generation
-include("random.jl")
+include("librandom.jl")
+include("rng.jl")
+import Base.RNG.*
 
 # distributed arrays and memory-mapped arrays
 include("darray.jl")
@@ -128,16 +130,15 @@ include("deepcopy.jl")
 include("build_h.jl")
 
 # linear algebra
+include("blas.jl")
+include("lapack.jl")
+include("matmul.jl")
 include("linalg.jl")
 include("linalg_dense.jl")
-include("linalg_specialized.jl")
-include("linalg_blas.jl")
-include("linalg_lapack.jl")
-include("factorizations.jl")
 
 # signal processing
-include("DSP_fftw.jl")
-include("DSP.jl")
+include("fftw.jl")
+include("dsp.jl")
 import Base.DSP.*
 
 # prime method cache with some things we know we'll need right after startup
@@ -172,10 +173,10 @@ compile_hint(cmp, (Int32, Int32))
 compile_hint(min, (Int32, Int32))
 compile_hint(==, (ASCIIString, ASCIIString))
 compile_hint(arg_gen, (ASCIIString,))
-compile_hint(_jl_librandom_init, ())
-compile_hint(srand, (ASCIIString, Int))
+compile_hint(RNG.librandom_init, ())
+compile_hint(RNG.srand, (ASCIIString, Int))
 compile_hint(open, (ASCIIString, Bool, Bool, Bool, Bool))
-compile_hint(srand, (Uint64,))
+compile_hint(RNG.srand, (Uint64,))
 compile_hint(done, (IntSet, Int64))
 compile_hint(next, (IntSet, Int64))
 compile_hint(ht_keyindex, (Dict{Any,Any}, Int32))
@@ -224,12 +225,13 @@ compile_hint(static_convert, (Nothing, Nothing))
 compile_hint(assign, (Array{Any,1}, WeakRef, Int))
 compile_hint(assign, (Dict{Any,Any}, WorkItem, (Int,Int)))
 compile_hint(isequal, ((Int,Int),(Int,Int)))
+compile_hint(isequal, (Int,Int))
 compile_hint(RemoteRef, (Int, Int, Int))
 compile_hint(_jl_eval_user_input, (Expr, Bool))
 compile_hint(print, (Float64,))
 compile_hint(a2t, (Array{Any,1},))
 compile_hint(flush, (IOStream,))
-compile_hint(ref, (Type{String}, ASCIIString, ASCIIString, ASCIIString))
+compile_hint(ref, (Type{String}, ASCIIString, ASCIIString, ASCIIString, ASCIIString, ASCIIString))
 compile_hint(int, (Int,))
 compile_hint(uint, (Uint,))
 compile_hint(_atexit, ())
@@ -251,6 +253,12 @@ compile_hint(CallStack, (Expr, Module, (Nothing,), EmptyCallStack))
 compile_hint(convert, (Type{Module}, Module))
 compile_hint(effect_free, (Expr,))
 compile_hint(effect_free, (TopNode,))
+compile_hint(abs_path, (ASCIIString,))
+compile_hint(isrooted, (ASCIIString,))
+compile_hint(split, (ASCIIString,))
+compile_hint(split, (ASCIIString, ASCIIString, Int, Bool))
+compile_hint(print_joined, (IOStream, Array{String,1}, ASCIIString))
+compile_hint(begins_with, (ASCIIString, ASCIIString))
 
 # invoke type inference, running the existing inference code on the new
 # inference code to cache an optimized version of it.

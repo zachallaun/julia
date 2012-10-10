@@ -228,10 +228,19 @@ end
 myid() = (global PGRP; (PGRP::ProcessGroup).myid)
 nprocs() = (global PGRP; (PGRP::ProcessGroup).np)
 
+function worker_from_id(i)
+    pg = PGRP::ProcessGroup
+    while i > length(pg.workers) || pg.workers[i]===nothing
+        sleep(0.1)
+        yield()
+    end
+    pg.workers[i]
+end
+
 function worker_id_from_socket(s)
     global PGRP
     for i=1:nprocs()
-        w = (PGRP::ProcessGroup).workers[i]
+        w = worker_from_id(i)
         if isa(w,Worker)
             if is(s, w.socket) || is(s, w.sendbuf)
                 return i
@@ -243,11 +252,6 @@ function worker_id_from_socket(s)
         return myid()
     end
     return -1
-end
-
-function worker_from_id(id)
-    global PGRP
-    (PGRP::ProcessGroup).workers[id]
 end
 
 # establish a Worker connection for processes that connected to us
@@ -566,7 +570,7 @@ function remote_call_fetch(w::LocalProcess, f, args...)
     oid = rr2id(rr)
     wi = schedule_call(oid, local_remote_call_thunk(f,args))
     wi.notify = ((), :call_fetch, oid, wi.notify)
-    force(yieldto(Scheduler, WaitFor(:call_fetch, rr)))
+    force(yield(WaitFor(:call_fetch, rr)))
 end
 
 function remote_call_fetch(w::Worker, f, args...)
@@ -575,7 +579,7 @@ function remote_call_fetch(w::Worker, f, args...)
     rr = WeakRemoteRef(w)
     oid = rr2id(rr)
     send_msg(w, :call_fetch, oid, f, args)
-    force(yieldto(Scheduler, WaitFor(:call_fetch, rr)))
+    force(yield(WaitFor(:call_fetch, rr)))
 end
 
 remote_call_fetch(id::Integer, f, args...) =
@@ -588,7 +592,7 @@ function remote_call_wait(w::Worker, f, args...)
     rr = RemoteRef(w)
     oid = rr2id(rr)
     send_msg(w, :call_wait, oid, f, args)
-    yieldto(Scheduler, WaitFor(:wait, rr))
+    yield(WaitFor(:wait, rr))
 end
 
 remote_call_wait(id::Integer, f, args...) =
@@ -625,10 +629,10 @@ function sync_msg(verb::Symbol, r::RemoteRef)
             wi.notify = ((), verb, oid, wi.notify)
         end
     else
-        send_msg(pg.workers[r.where], verb, oid)
+        send_msg(worker_from_id(r.where), verb, oid)
     end
     # yield to event loop, return here when answer arrives
-    v = yieldto(Scheduler, WaitFor(verb, r))
+    v = yield(WaitFor(verb, r))
     return is(verb,:fetch) ? force(v) : r
 end
 
@@ -641,7 +645,7 @@ function put_ref(rid, val::ANY)
     wi = lookup_ref(rid)
     if wi.done
         wi.notify = ((), :take, rid, wi.notify)
-        yieldto(Scheduler, WaitFor(:take, RemoteRef(myid(), rid[1], rid[2])))
+        yield(WaitFor(:take, RemoteRef(myid(), rid[1], rid[2])))
     end
     wi.result = val
     wi.done = true
@@ -731,6 +735,7 @@ function perform_work(job::WorkItem)
             # continuing interrupted work item
             arg = job.argument
             job.argument = ()
+            job.task.runnable = true
             result = is(arg,()) ? yieldto(job.task) : yieldto(job.task, arg)
         else
             job.task = Task(job.thunk)
@@ -744,6 +749,8 @@ function perform_work(job::WorkItem)
         println()
         result = e
     end
+    # restart job by yielding back to whatever task just switched to us
+    job.task = current_task().last
     if istaskdone(job.task)
         # job done
         job.done = true
@@ -755,19 +762,32 @@ function perform_work(job::WorkItem)
         notify_done(job)
         job.thunk = bottom_func  # avoid reference retention
     elseif isa(result,WaitFor)
-        # add to waiting set to wait on a sync event
+        job.task.runnable = false
         wf::WaitFor = result
-        rr = wf.rr
-        #println("$(myid()) waiting for $rr")
-        oid = rr2id(rr)
-        waitinfo = (wf.msg, job, rr)
-        waiters = get(Waiting, oid, false)
-        if isequal(waiters,false)
-            Waiting[oid] = {waitinfo}
+        if wf.msg === :consume
+            P = wf.rr::Task
+            # queue consumers waiting for producer P. note that in order
+            # to avoid scheduling overhead for a typical produce/consume,
+            # there is no fairness unless consumers explicitly yield().
+            if P.consumers === nothing
+                P.consumers = {job}
+            else
+                enqueue(P.consumers, job)
+            end
         else
-            push(waiters, waitinfo)
+            # add to waiting set to wait on a sync event
+            rr = wf.rr
+            #println("$(myid()) waiting for $rr")
+            oid = rr2id(rr)
+            waitinfo = (wf.msg, job, rr)
+            waiters = get(Waiting, oid, false)
+            if isequal(waiters,false)
+                Waiting[oid] = {waitinfo}
+            else
+                push(waiters, waitinfo)
+            end
         end
-    else
+    elseif job.task.runnable
         # otherwise return to queue
         enq_work(job)
     end
@@ -1286,7 +1306,7 @@ end
 macro sync(block)
     quote
         sync_begin()
-        v = $esc(block)
+        v = $(esc(block))
         sync_end()
         v
     end
@@ -1354,7 +1374,7 @@ end
 
 macro spawn(expr)
     expr = localize_vars(:(()->($expr)))
-    :(spawn($esc(expr)))
+    :(spawn($(esc(expr))))
 end
 
 function spawnlocal(thunk)
@@ -1373,12 +1393,12 @@ end
 
 macro spawnlocal(expr)
     expr = localize_vars(:(()->($expr)))
-    :(spawnlocal($esc(expr)))
+    :(spawnlocal($(esc(expr))))
 end
 
 macro spawnat(p, expr)
     expr = localize_vars(:(()->($expr)))
-    :(spawnat($p, $esc(expr)))
+    :(spawnat($p, $(esc(expr))))
 end
 
 function at_each(f, args...)
@@ -1390,7 +1410,7 @@ end
 macro everywhere(ex)
     quote
         @sync begin
-            at_each(()->eval($expr(:quote,ex)))
+            at_each(()->eval($(expr(:quote,ex))))
         end
     end
 end
@@ -1478,10 +1498,10 @@ function make_preduce_body(reducer, var, body)
     localize_vars(
     quote
         function (lo::Int, hi::Int)
-            $esc(var) = lo
-            ac = $esc(body)
-            for $esc(var) = (lo+1):hi
-                ac = ($esc(reducer))(ac, $esc(body))
+            $(esc(var)) = lo
+            ac = $(esc(body))
+            for $(esc(var)) = (lo+1):hi
+                ac = ($(esc(reducer)))(ac, $(esc(body)))
             end
             ac
         end
@@ -1493,8 +1513,8 @@ function make_pfor_body(var, body)
     localize_vars(
     quote
         function (lo::Int, hi::Int)
-            for $esc(var) = lo:hi
-                $esc(body)
+            for $(esc(var)) = lo:hi
+                $(esc(body))
             end
         end
     end
@@ -1519,12 +1539,12 @@ macro parallel(args...)
     body = loop.args[2]
     if na==1
         quote
-            pfor($make_pfor_body(var, body), $esc(r))
+            pfor($(make_pfor_body(var, body)), $(esc(r)))
         end
     else
         quote
-            preduce($esc(reducer),
-                    $make_preduce_body(reducer, var, body), $esc(r))
+            preduce($(esc(reducer)),
+                    $(make_preduce_body(reducer, var, body)), $(esc(r)))
         end
     end
 end
@@ -1556,7 +1576,14 @@ function make_scheduled(t::Task)
     t
 end
 
-yield() = yieldto(Scheduler)
+function yield(args...)
+    ct = current_task()
+    # preserve Task.last across calls to the scheduler
+    prev = ct.last
+    v = yieldto(Scheduler, args...)
+    ct.last = prev
+    return v
+end
 
 const _jl_fd_handlers = Dict()
 

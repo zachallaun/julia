@@ -199,9 +199,25 @@ JL_CALLABLE(jl_f_apply)
 {
     JL_NARGSV(apply, 1);
     JL_TYPECHK(apply, function, args[0]);
-    if (nargs == 2 && jl_is_tuple(args[1])) {
-        return jl_apply((jl_function_t*)args[0], &jl_tupleref(args[1],0),
-                        jl_tuple_len(args[1]));
+    if (nargs == 2) {
+        if (((jl_function_t*)args[0])->fptr == &jl_f_tuple) {
+            if (jl_is_tuple(args[1]))
+                return args[1];
+            if (jl_is_array(args[1])) {
+                size_t n = jl_array_len(args[1]);
+                jl_tuple_t *t = jl_alloc_tuple(n);
+                JL_GC_PUSH(&t);
+                for(size_t i=0; i < n; i++) {
+                    jl_tupleset(t, i, jl_arrayref((jl_array_t*)args[1], i));
+                }
+                JL_GC_POP();
+                return (jl_value_t*)t;
+            }
+        }
+        if (jl_is_tuple(args[1])) {
+            return jl_apply((jl_function_t*)args[0], &jl_tupleref(args[1],0),
+                            jl_tuple_len(args[1]));
+        }
     }
     size_t n=0, i, j;
     for(i=1; i < nargs; i++) {
@@ -330,7 +346,7 @@ JL_CALLABLE(jl_f_tupleref)
     jl_tuple_t *t = (jl_tuple_t*)args[0];
     size_t i = jl_unbox_long(args[1])-1;
     if (i >= jl_tuple_len(t))
-        jl_error("tupleref: index out of range");
+        jl_raise(jl_bounds_exception);
     return jl_tupleref(t, i);
 }
 
@@ -369,6 +385,8 @@ JL_CALLABLE(jl_f_set_field)
     JL_TYPECHK(setfield, symbol, args[1]);
     jl_value_t *v = args[0];
     jl_value_t *vt = (jl_value_t*)jl_typeof(v);
+    if (vt == (jl_value_t*)jl_module_type)
+        jl_error("cannot assign variables in other modules");
     if (!jl_is_struct_type(vt))
         jl_type_error("setfield", (jl_value_t*)jl_struct_kind, v);
     jl_struct_type_t *st = (jl_struct_type_t*)vt;
@@ -388,6 +406,8 @@ JL_CALLABLE(jl_f_field_type)
     JL_TYPECHK(fieldtype, symbol, args[1]);
     jl_value_t *v = args[0];
     jl_value_t *vt = (jl_value_t*)jl_typeof(v);
+    if (vt == (jl_value_t*)jl_module_type)
+        jl_error("cannot assign variables in other modules");
     if (!jl_is_struct_type(vt))
         jl_type_error("fieldtype", (jl_value_t*)jl_struct_kind, v);
     jl_struct_type_t *st = (jl_struct_type_t*)vt;
@@ -613,10 +633,15 @@ DLLEXPORT void jl_show_any(jl_value_t *str, jl_value_t *v)
     }
     else {
         jl_value_t *t = (jl_value_t*)jl_typeof(v);
-        if (jl_is_struct_type(t)) {
-            jl_struct_type_t *st = (jl_struct_type_t*)t;
-            JL_PUTS(st->name->name->name, s);
-            JL_PUTC('(', s);
+        assert(jl_is_struct_type(t) || jl_is_bits_type(t));
+        jl_tag_type_t *tt = (jl_tag_type_t*)t;
+        JL_PUTS(tt->name->name->name, s);
+        if (tt->parameters != jl_null) {
+            jl_show_tuple(str, tt->parameters, '{', '}', 0);
+        }
+        JL_PUTC('(', s);
+        if (jl_is_struct_type(tt)) {
+            jl_struct_type_t *st = (jl_struct_type_t*)tt;
             size_t i;
             size_t n = jl_tuple_len(st->names);
             for(i=0; i < n; i++) {
@@ -628,8 +653,15 @@ DLLEXPORT void jl_show_any(jl_value_t *str, jl_value_t *v)
                 if (i < n-1)
                     JL_PUTC(',', s);
             }
-            JL_PUTC(')', s);
         }
+        else {
+            size_t nb = jl_bitstype_nbits(tt)/8;
+            char *data = (char*)jl_bits_data(v);
+            JL_PUTS("0x", s);
+            for(int i=nb-1; i >= 0; --i)
+                ios_printf(s, "%02hhx", data[i]);
+        }
+        JL_PUTC(')', s);
     }
 }
 

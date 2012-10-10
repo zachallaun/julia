@@ -35,7 +35,7 @@ end
 macro time(ex)
     quote
         local t0 = time()
-        local val = $esc(ex)
+        local val = $(esc(ex))
         local t1 = time()
         println("elapsed time: ", t1-t0, " seconds")
         val
@@ -46,7 +46,7 @@ end
 macro elapsed(ex)
     quote
         local t0 = time()
-        local val = $esc(ex)
+        local val = $(esc(ex))
         time()-t0
     end
 end
@@ -306,7 +306,7 @@ function help()
     print(
 " Welcome to Julia. The full manual is available at
 
-    http://julialang.org/manual/
+    http://docs.julialang.org
 
  To get help on a function, try help(function). To search all help text,
  try apropos(\"string\"). To see available functions, try help(category),

@@ -135,11 +135,11 @@ function docheck_common(o::Options,checkflag::Vector{Bool})
     if any(unused)
         s = Array(ASCIIString,0)
         for (k, v) = o.key2index
-            if unused[v]
+            if v <= length(unused) && unused[v]
                 push(s,string(k))
             end
         end
-        msg = strcat("The following options were not used: ",s)
+        msg = strcat("The following option(s) were unused: ",s)
     end
     return unused, msg
 end
@@ -162,8 +162,12 @@ function docheck(o::Options{CheckError},checkflag::Vector{Bool})
 end
 # Reset status on handled options (in case o is reused later)
 function clearcheck(o::Options,checkflag::Vector{Bool})
-    o.used[checkflag] = false
-    o.check_lock[checkflag] = false
+    for i = 1:length(checkflag)
+        if checkflag[i]
+            o.used[i] = false
+            o.check_lock[i] = false
+        end
+    end
 end
 
 
@@ -175,7 +179,7 @@ end
 macro defaults(opts,ex...)
     # Create a new variable storing the checkflag
     varname = strcat("_",string(opts),"_checkflag")
-    exret = :($esc(symbol(varname)) = ischeck($esc(opts)))
+    exret = :($(esc(symbol(varname))) = ischeck($(esc(opts))))
     # Transform the tuple into a vector, so that
     # we can manipulate it
     ex = {ex...}
@@ -206,13 +210,13 @@ macro defaults(opts,ex...)
         sym = y.args[1]
         exret = quote
             $exret
-            htindex = Base.ht_keyindex(($esc(opts)).key2index,$expr(:quote,sym))
+            htindex = Base.ht_keyindex($(esc(opts)).key2index,$(expr(:quote,sym)))
             if htindex > 0
-                htindex = ($esc(opts)).key2index.vals[htindex]
-                ($esc(sym)) = ($esc(opts)).vals[htindex]
-                ($esc(opts)).used[htindex] = true
+                htindex = $(esc(opts)).key2index.vals[htindex]
+                $(esc(sym)) = $(esc(opts)).vals[htindex]
+                $(esc(opts)).used[htindex] = true
             else
-                ($esc(y))
+                $(esc(y))
             end
         end
         i += 1
@@ -226,7 +230,7 @@ end
 #    @check_used opts
 macro check_used(opts)
     varname = strcat("_",string(opts),"_checkflag")
-    :(docheck($esc(opts),$esc(symbol(varname))))
+    :(docheck($(esc(opts)),$(esc(symbol(varname)))))
 end
 
 # Macro for setting options. Usage:
@@ -305,7 +309,7 @@ macro set_options(opts,ex...)
         val = y.args[2]
         exret = quote
             $exret
-            ($esc(opts))[$expr(:quote,sym)] = $esc(val)
+            $(esc(opts))[$(expr(:quote,sym))] = $(esc(val))
         end
         i += 1
     end

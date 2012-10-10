@@ -103,9 +103,9 @@ function insert_profile_block(fblock::Expr, tlast, tnow, timers, counters, tags,
             push(tags,lasttag)
             if saveret
                 if is_expr_head(fblock.args[i], :return)
-                    push(fblocknewargs, :($retsym = $fblock.args[i].args[1]))
+                    push(fblocknewargs, :($retsym = $(fblock.args[i].args[1])))
                 else
-                    push(fblocknewargs, :($retsym = $fblock.args[i]))
+                    push(fblocknewargs, :($retsym = $(fblock.args[i])))
                 end
             else
                 push(fblocknewargs, fblock.args[i])
@@ -262,7 +262,7 @@ function profile_report()
     ret = gensym()
     exret[1] = :($ret = {})
     for i = 1:length(_PROFILE_REPORTS)
-        exret[i+1] = :(push($ret,$expr(:call,{_PROFILE_REPORTS[i]})))
+        exret[i+1] = :(push($ret,$(expr(:call,{_PROFILE_REPORTS[i]}))))
     end
     exret[end] = :(profile_print($ret))
     return expr(:block,exret)

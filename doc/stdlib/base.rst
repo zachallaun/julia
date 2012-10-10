@@ -34,6 +34,10 @@ Getting Around
 
    Show which method of ``f`` will be called for the given arguments
 
+.. function:: methods(f)
+
+   Show all methods of ``f`` with their argument types
+
 All Objects
 -----------
 
@@ -126,11 +130,11 @@ Types
 
 .. function:: eps([type])
 
-   The distance between 1.0 and the next largest representable floating-point value of ``type``. The only types that are sensible arguments are ``Float32`` and ``Float64``. If ``type`` is omitted, then ``eps(Float64)`` is returned.
+   The distance between 1.0 and the next larger representable floating-point value of ``type``. The only types that are sensible arguments are ``Float32`` and ``Float64``. If ``type`` is omitted, then ``eps(Float64)`` is returned.
 
 .. function:: eps(x)
 
-   The distance between ``x`` and the next largest representable floating-point value of the same type as ``x``.
+   The distance between ``x`` and the next larger representable floating-point value of the same type as ``x``.
 
 .. function:: promote_type(type1, type2)
 
@@ -280,7 +284,7 @@ Associative Collections
 
 ``Dict`` is the standard associative collection. Its implementation uses the ``hash(x)`` as the hashing function for the key, and ``isequal(x,y)`` to determine equality. Define these two functions for custom types to override how they are stored in a hash table.
 
-``ObjectIdDict`` is a special hash table where the keys are always object identities. ``WeakKeyDict`` is a hash table implementation where the keys are weak references to objects, and thus maybe garbage collected even when referenced in a hash table.
+``ObjectIdDict`` is a special hash table where the keys are always object identities. ``WeakKeyDict`` is a hash table implementation where the keys are weak references to objects, and thus may be garbage collected even when referenced in a hash table.
 
 Dicts can be created using a literal syntax: ``{"A"=>1, "B"=>2}``
 
@@ -724,17 +728,25 @@ Mathematical Functions
 
    Accurately compute ``exp(x)-1``
 
-.. function:: ceil(x) -> FloatingPoint
+.. function:: round(x[, digits[, base]]) -> FloatingPoint
 
-   Returns the nearest integer not less than ``x``.
+   ``round(x)`` returns the nearest integer to ``x``. ``round(x, digits)`` rounds to the specified number of digits after the decimal place, or before if negative, e.g., ``round(pi,2)`` is ``3.14``. ``round(x, digits, base)`` rounds using a different base, defaulting to 10, e.g., ``round(pi, 3, 2)`` is ``3.125``.
 
-.. function:: floor(x) -> FloatingPoint
+.. function:: ceil(x[, digits[, base]]) -> FloatingPoint
 
-   Returns the nearest integer not greater than ``x``.
+   Returns the nearest integer not less than ``x``. ``digits`` and ``base`` work as above.
 
-.. function:: trunc(x) -> FloatingPoint
+.. function:: floor(x[, digits[, base]]) -> FloatingPoint
 
-   Returns the nearest integer not greater in magnitude than ``x``.
+   Returns the nearest integer not greater than ``x``. ``digits`` and ``base`` work as above.
+
+.. function:: trunc(x[, digits[, base]]) -> FloatingPoint
+
+   Returns the nearest integer not greater in magnitude than ``x``. ``digits`` and ``base`` work as above.
+
+.. function:: iround(x) -> Integer
+
+   Returns the nearest integer to ``x``.
 
 .. function:: iceil(x) -> Integer
 
@@ -748,7 +760,11 @@ Mathematical Functions
 
    Returns the nearest integer not greater in magnitude than ``x``.
 
-``exp2`` ``ldexp`` ``round`` ``iround`` ``min`` ``max`` ``clamp`` ``abs``
+.. function:: signif(x, digits[, base]) -> FloatingPoint
+
+   Rounds (in the sense of ``round``) ``x`` so that there are ``digits`` significant digits, under a base ``base`` representation, default 10. E.g., ``signif(123.456, 2)`` is ``120.0``, and ``signif(357.913, 4, 2)`` is ``352.0``. 
+
+``exp2`` ``ldexp`` ``min`` ``max`` ``clamp`` ``abs``
 
 .. function:: abs2(x)
 

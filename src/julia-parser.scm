@@ -68,7 +68,7 @@
 (define (assignment? e)
   (and (pair? e) (eq? (car e) '=)))
 
-(define unary-ops '(+ - ! ~ $ & |<:| |>:|))
+(define unary-ops '(+ - ! ~ |<:| |>:|))
 
 ; operators that are both unary and binary
 (define unary-and-binary-ops '(+ - $ & ~))
@@ -76,7 +76,7 @@
 ; operators that are special forms, not function names
 (define syntactic-operators
   '(= := += -= *= /= //= .//= .*= ./= |\\=| |.\\=| ^= .^= %= |\|=| &= $= =>
-      <<= >>= >>>= -> --> |\|\|| && : |::| |.|))
+      <<= >>= >>>= -> --> |\|\|| && |::| |.|))
 (define syntactic-unary-operators '($ &))
 
 (define reserved-words '(begin while if for try return break continue
@@ -167,6 +167,10 @@
       (and (>= c #\a) (<= c #\f))
       (and (>= c #\A) (<= c #\F))))
 
+(define (char-bin? c)
+  (or (eqv? c #\0)
+      (eqv? c #\1)))
+
 (define (read-number port leadingdot neg)
   (let ((str  (open-output-string))
 	(pred char-numeric?)
@@ -200,10 +204,14 @@
 	(if (eqv? (peek-char port) #\0)
 	    (begin (write-char (read-char port) str)
 		   (set! leadingzero #t)
-		   (if (allow #\x)
-		       (begin
-			 (set! leadingzero #f)
-			 (set! pred char-hex?))))
+                   (cond ((allow #\x)
+                          (begin
+                             (set! leadingzero #f)
+                             (set! pred char-hex?)))
+                         ((allow #\b)
+                          (begin
+                             (set! leadingzero #f)
+                             (set! pred char-bin?)))))
 	    (allow #\.)))
     (read-digs leadingzero)
     (if (eqv? (peek-char port) #\.)
@@ -223,23 +231,39 @@
 			      (write-char (read-char port) str)
 			      (read-digs #f)
 			      (disallow-dot))
-		       (io.ungetc port c))))))
+		       (io.ungetc port c))))
+          ; disallow digits after binary literals, e.g., 0b12
+          (if (and (eq? pred char-bin?)
+                   (not (eof-object? c))
+                   (char-numeric? c))
+              (error (string "invalid numeric constant "
+                             (get-output-string str) c)))))
     (let* ((s (get-output-string str))
-	   (n (string->number s (if (eq? pred char-hex?) 16 10))))
+           (r (cond ((eq? pred char-hex?) 16)
+                    ((eq? pred char-bin?) 2)
+                    (else 10)))
+           (n (string->number s r)))
       (if n
-	  (if (eq? pred char-hex?)
-	      (sized-uint-literal n s)
-	      (if (and (integer? n) (> n 9223372036854775807))
-	          (error (string "invalid numeric constant " s))
-	          n))
+          (cond ((eq? pred char-hex?) (sized-uint-hex-literal n s))
+                ((eq? pred char-bin?) (sized-uint-bin-literal n s))
+                (else (if (and (integer? n) (> n 9223372036854775807))
+                          (error (string "invalid numeric constant " s))
+                          n)))
 	  (error (string "invalid numeric constant " s))))))
 
-(define (sized-uint-literal n s)
+(define (sized-uint-hex-literal n s)
   (let ((l (length s)))
     (cond ((< l 5)  (uint8  n))
 	  ((< l 7)  (uint16 n))
 	  ((< l 11) (uint32 n))
 	  (else     (uint64 n)))))
+
+(define (sized-uint-bin-literal n s)
+  (let ((l (length s)))
+    (cond ((< l 11) (uint8  n))
+          ((< l 19) (uint16 n))
+          ((< l 35) (uint32 n))
+          (else     (uint64 n)))))
 
 (define (skip-ws-and-comments port)
   (skip-ws port #t)
@@ -411,13 +435,17 @@
 		 (first? #t))
 	(let ((t (peek-token s)))
 	  (if (not (eqv? t op))
-	      (if (or (null? ex) (pair? (cdr ex)) (not first?))
-	          ; () => (head)
-	          ; (ex2 ex1) => (head ex1 ex2)
-	          ; (ex1) ** if operator appeared => (head ex1) (handles "x;")
-		  (cons head (reverse ex))
-	          ; (ex1) => ex1
-		  (car ex))
+	      (begin
+		(if (not (or (eof-object? t) (eqv? t #\newline) (eqv? op #\,)
+			     (memv t closers)))
+		    (error "extra token after end of expression"))
+		(if (or (null? ex) (pair? (cdr ex)) (not first?))
+		    ;; () => (head)
+		    ;; (ex2 ex1) => (head ex1 ex2)
+		    ;; (ex1) if operator appeared => (head ex1) (handles "x;")
+		    (cons head (reverse ex))
+		    ;; (ex1) => ex1
+		    (car ex)))
 	      (begin (take-token s)
 		     ; allow input to end with the operator, as in a;b;
 		     (if (or (eof-object? (peek-token s))
@@ -474,16 +502,23 @@
 					  '(end else elseif catch #\newline)
 					  #t))
 ;; ";" at the top level produces a sequence of top level expressions
-(define (parse-stmts s) (parse-Nary s parse-eq #\; 'toplevel '(#\newline) #t))
+(define (parse-stmts s)
+  (let ((ex (parse-Nary s parse-eq #\; 'toplevel '(#\newline) #t)))
+    ;; check for unparsed junk after an expression
+    (let ((t (peek-token s)))
+      (if (not (or (eof-object? t) (eqv? t #\newline) (eq? t #f)))
+	  (error "extra token after end of expression")))
+    ex))
 
 (define (parse-eq s)
   (let ((lno (input-port-line (ts:port s))))
     (short-form-function-loc
      (parse-RtoL s parse-comma (prec-ops 0)) lno)))
+
 ; parse-eq* is used where commas are special, for example in an argument list
 (define (parse-eq* s)   (parse-RtoL s parse-cond  (prec-ops 0)))
 ; parse-comma is needed for commas outside parens, for example a = b,c
-(define (parse-comma s) (parse-Nary s parse-cond  #\, 'tuple '( #\) ) #f))
+(define (parse-comma s) (parse-Nary s parse-cond  #\, 'tuple '() #f))
 (define (parse-or s)    (parse-LtoR s parse-and   (prec-ops 2)))
 (define (parse-and s)   (parse-LtoR s parse-arrow (prec-ops 3)))
 (define (parse-arrow s) (parse-RtoL s parse-ineq  (prec-ops 4)))
@@ -589,7 +624,7 @@
 	   (let* ((op  (take-token s))
 		  (nch (peek-char (ts:port s))))
 	     (if (and (or (eq? op '-) (eq? op '+))
-		      (or (char-numeric? nch)
+		      (or (and (char? nch) (char-numeric? nch))
 			  (and (eqv? nch #\.) (read-char (ts:port s)))))
 		 (let ((num
 			(parse-juxtapose
@@ -606,8 +641,6 @@
 		 (let ((next (peek-token s)))
 		   (cond ((closing-token? next)
 			  op)  ; return operator by itself, as in (+)
-			 ((syntactic-unary-op? op)
-			  (list op (parse-unary s)))
 			 ((eqv? next #\{)  ;; this case is +{T}(x::T) = ...
 			  (ts:put-back! s op)
 			  (parse-factor s))
@@ -661,10 +694,19 @@
       `(<: ,(cadr e) ,(cadddr e))
       e))
 
+(define (parse-unary-prefix s)
+  (let ((op (peek-token s)))
+    (if (syntactic-unary-op? op)
+	(begin (take-token s)
+	       (cond ((closing-token? (peek-token s))  op)
+		     ((eq? op '&)  (list op (parse-call s)))
+		     (else         (list op (parse-atom s)))))
+	(parse-atom s))))
+
 ; parse function call, indexing, dot, and transpose expressions
 ; also handles looking for syntactic reserved words
 (define (parse-call s)
-  (let ((ex (parse-atom s)))
+  (let ((ex (parse-unary-prefix s)))
     (if (memq ex reserved-words)
 	(parse-resword s ex)
 	(let loop ((ex ex))
@@ -871,26 +913,10 @@
 	   (error "invalid export statement"))
        `(export ,@es)))
     ((import)
-     (let ((ns (macrocall-to-atsym (parse-atom s))))
-       (let loop ((path (list ns)))
-	 (if (not (symbol? (car path)))
-	     (error "invalid import statement: expected identifier"))
-	 (let ((nxt (peek-token s)))
-	   (cond ((eq? nxt '|.*|)
-		  (take-token s)
-		  `(importall ,@(reverse path)))
-		 ((eq? nxt '|.|)
-		  (take-token s)
-		  (loop (cons (macrocall-to-atsym (parse-atom s)) path)))
-		 ((or (eqv? nxt #\newline)
-		      (eof-object? nxt))
-		  `(import ,@(reverse path)))
-		 ((eqv? (string.sub (string nxt) 0 1) ".")
-		  (take-token s)
-		  (loop (cons (symbol (string.sub (string nxt) 1))
-			      path)))
-		 (else
-		  (error "invalid import statement")))))))
+     (let ((imports (parse-comma-separated s parse-import)))
+       (if (length= imports 1)
+	   (car imports)
+	   (cons 'toplevel imports))))
     ((ccall)
      (if (not (eqv? (peek-token s) #\())
 	 'ccall
@@ -920,13 +946,38 @@
       (cadr e)
       e))
 
+(define (parse-import s)
+  (let ((ns (macrocall-to-atsym (parse-atom s))))
+    (let loop ((path (list ns)))
+      (if (not (symbol? (car path)))
+	  (error "invalid import statement: expected identifier"))
+      (let ((nxt (peek-token s)))
+	(cond ((eq? nxt '|.*|)
+	       (take-token s)
+	       `(importall ,@(reverse path)))
+	      ((eq? nxt '|.|)
+	       (take-token s)
+	       (loop (cons (macrocall-to-atsym (parse-atom s)) path)))
+	      ((or (memv nxt '(#\newline #\; #\,))
+		   (eof-object? nxt))
+	       `(import ,@(reverse path)))
+	      ((eqv? (string.sub (string nxt) 0 1) ".")
+	       (take-token s)
+	       (loop (cons (symbol (string.sub (string nxt) 1))
+			   path)))
+	      (else
+	       (error "invalid import statement")))))))
+
 ; parse comma-separated assignments, like "i=1:n,j=1:m,..."
-(define (parse-comma-separated-assignments s)
-  (let loop ((ranges '()))
-    (let ((r (parse-eq* s)))
+(define (parse-comma-separated s what)
+  (let loop ((exprs '()))
+    (let ((r (what s)))
       (case (peek-token s)
-	((#\,)  (take-token s) (loop (cons r ranges)))
-	(else   (reverse! (cons r ranges)))))))
+	((#\,)  (take-token s) (loop (cons r exprs)))
+	(else   (reverse! (cons r exprs)))))))
+
+(define (parse-comma-separated-assignments s)
+  (parse-comma-separated s parse-eq*))
 
 ; as above, but allows both "i=r" and "i in r"
 (define (parse-comma-separated-iters s)
@@ -1174,6 +1225,13 @@
 
 ; parse numbers, identifiers, parenthesized expressions, lists, vectors, etc.
 (define (parse-atom s)
+  (let ((ex (parse-atom- s)))
+    (if (and (symbol? ex)
+	     (memq ex syntactic-operators))
+	(error (string "invalid identifier name " ex)))
+    ex))
+
+(define (parse-atom- s)
   (let ((t (require-token s)))
     (cond ((or (string? t) (number? t)) (take-token s))
 
@@ -1212,7 +1270,7 @@
 	   (take-token s)
 	   (if (closing-token? (peek-token s))
 	       ':
-	       (let ((ex (parse-atom s)))
+	       (let ((ex (parse-atom- s)))
 		 (list 'quote ex))))
 
 	  ;; misplaced =
@@ -1229,13 +1287,13 @@
 	   (if (eqv? (require-token s) #\) )
 	       ;; empty tuple ()
 	       (begin (take-token s) '(tuple))
-	       (if (eq? (peek-token s) '=)
-		   ;; allow (=)
-		   (begin (take-token s)
-			  (if (not (eqv? (require-token s) #\) ))
-			      (error "invalid tuple")
-			      (take-token s))
-			  '=)
+	       (if (memq (peek-token s) syntactic-operators)
+		   ;; allow (=) etc.
+		   (let ((tok (take-token s)))
+		     (if (not (eqv? (require-token s) #\) ))
+			 (error (string "invalid identifier name " tok))
+			 (take-token s))
+		     tok)
 		   ;; here we parse the first subexpression separately, so
 		   ;; we can look for a comma to see if it's a tuple.
 		   ;; this lets us distinguish (x) from (x,)
@@ -1243,9 +1301,10 @@
 			  (t (require-token s)))
 		     (cond ((eqv? t #\) )
 			    (take-token s)
-			    ;; value in parentheses (x)
 			    (if (and (pair? ex) (eq? (car ex) '...))
+				;; (ex...)
 				`(tuple ,ex)
+				;; value in parentheses (x)
 				ex))
 			   ((eqv? t #\, )
 			    ;; tuple (x,) (x,y) (x...) etc.

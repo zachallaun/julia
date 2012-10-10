@@ -54,9 +54,9 @@ static void probe(struct _probe_data *p)
 {
     p->prior_local = p->probe_local;
     p->probe_local = (intptr_t)&p;
-    jl_setjmp( *(p->ref_probe), 1 );
+    jl_setjmp( *(p->ref_probe), 0 );
     p->ref_probe = &p->probe_env;
-    jl_setjmp( p->probe_sameAR, 1 );
+    jl_setjmp( p->probe_sameAR, 0 );
     boundhigh(p);
 }
 
@@ -214,7 +214,7 @@ static void ctx_switch(jl_task_t *t, jl_jmp_buf *where)
       *IF AND ONLY IF* throwing the exception involved a task switch.
     */
     //JL_SIGATOMIC_BEGIN();
-    if (!jl_setjmp(jl_current_task->ctx, 1)) {
+    if (!jl_setjmp(jl_current_task->ctx, 0)) {
 #ifdef COPY_STACKS
         jl_task_t *lastt = jl_current_task;
         save_stack(lastt);
@@ -225,6 +225,10 @@ static void ctx_switch(jl_task_t *t, jl_jmp_buf *where)
         jl_current_task->state.gcstack = jl_pgcstack;
         jl_pgcstack = t->state.gcstack;
 #endif
+        t->last = jl_current_task;
+        // by default, exit to first task to switch to this one
+        if (t->on_exit == NULL)
+            t->on_exit = jl_current_task;
         jl_current_task = t;
 
 #ifdef COPY_STACKS
@@ -362,7 +366,7 @@ static void start_task(jl_task_t *t)
     local_sp += sizeof(jl_gcframe_t);
     local_sp += 12*sizeof(void*);
     t->stackbase = (void*)(local_sp + _frame_offset);
-    if (jl_setjmp(t->base_ctx, 1)) {
+    if (jl_setjmp(t->base_ctx, 0)) {
         // we get here to remove our data from the process stack
         switch_stack(jl_current_task, jl_jmp_target);
     }
@@ -391,7 +395,7 @@ static void start_task(jl_task_t *t)
 #ifndef COPY_STACKS
 static void init_task(jl_task_t *t)
 {
-    if (jl_setjmp(t->ctx, 1)) {
+    if (jl_setjmp(t->ctx, 0)) {
         start_task(t);
     }
     // this runs when the task is created
@@ -418,9 +422,9 @@ static void push_frame_info_from_ip(jl_array_t *a, size_t ip)
     getFunctionInfo(&func_name, &line_num, &file_name, ip);
     if (func_name != NULL) {
         jl_array_grow_end(a, 3);
-        jl_arrayset(a, i, (jl_value_t*)jl_symbol(func_name)); i++;
-        jl_arrayset(a, i, (jl_value_t*)jl_symbol(file_name)); i++;
-        jl_arrayset(a, i, jl_box_long(line_num));
+        jl_arrayset(a, (jl_value_t*)jl_symbol(func_name), i); i++;
+        jl_arrayset(a, (jl_value_t*)jl_symbol(file_name), i); i++;
+        jl_arrayset(a, jl_box_long(line_num), i);
     }
 }
 
@@ -555,9 +559,12 @@ jl_task_t *jl_new_task(jl_function_t *start, size_t ssize)
     t->type = (jl_type_t*)jl_task_type;
     ssize = LLT_ALIGN(ssize, pagesz);
     t->ssize = ssize;
-    t->on_exit = jl_current_task;
+    t->on_exit = NULL;
+    t->last = jl_current_task;
     t->tls = jl_current_task->tls;
+    t->consumers = jl_nothing;
     t->done = 0;
+    t->runnable = 1;
     t->start = start;
     t->result = NULL;
     t->state.err = 0;
@@ -654,11 +661,15 @@ void jl_init_tasks(void *stack, size_t ssize)
     _probe_arch();
     jl_task_type = jl_new_struct_type(jl_symbol("Task"), jl_any_type,
                                       jl_null,
-                                      jl_tuple(3, jl_symbol("parent"),
+                                      jl_tuple(6, jl_symbol("parent"),
+                                               jl_symbol("last"),
                                                jl_symbol("tls"),
-                                               jl_symbol("done")),
-                                      jl_tuple(3, jl_any_type, jl_any_type,
-                                               jl_bool_type));
+                                               jl_symbol("consumers"),
+                                               jl_symbol("done"),
+                                               jl_symbol("runnable")),
+                                      jl_tuple(6, jl_any_type, jl_any_type,
+                                               jl_any_type, jl_any_type,
+                                               jl_bool_type, jl_bool_type));
     jl_tupleset(jl_task_type->types, 0, (jl_value_t*)jl_task_type);
     jl_task_type->fptr = jl_f_task;
 
@@ -674,8 +685,11 @@ void jl_init_tasks(void *stack, size_t ssize)
 #endif
     jl_current_task->stkbuf = NULL;
     jl_current_task->on_exit = jl_current_task;
+    jl_current_task->last = jl_current_task;
     jl_current_task->tls = NULL;
+    jl_current_task->consumers = NULL;
     jl_current_task->done = 0;
+    jl_current_task->runnable = 1;
     jl_current_task->start = NULL;
     jl_current_task->result = NULL;
     jl_current_task->state.err = 0;

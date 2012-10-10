@@ -108,15 +108,18 @@
 
 # type Task
 #     parent::Task
+#     last::Task
 #     tls::Any
+#     consumers
 #     done::Bool
+#     runnable::Bool
 # end
 
-import Root
+import Main
 
 export ..., ANY, ASCIIString, AbstractArray, AbstractKind, Any, Array,
     BitsKind, Bool, BoundsError, Box, ByteString, Char, CompositeKind,
-    Core, Root, DirectIndexString, DivideByZeroError, DomainError, EOFError,
+    Main, DirectIndexString, DivideByZeroError, DomainError, EOFError,
     Exception, Expr, FloatingPoint, Float32, Float64, Function, GotoNode, IOError,
     InexactError, Integer, Int, Int8, Int16, Int32, Int64, Int128,
     InterruptException,
