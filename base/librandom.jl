@@ -2,7 +2,7 @@ librandom = dlopen("librandom")
 
 module LibRandom
 
-import Base.*
+using Base
 
 export DSFMT_state, dsfmt_get_min_array_size, dsfmt_get_idstring,
        dsfmt_init_gen_rand, dsfmt_gv_init_gen_rand, 
@@ -173,7 +173,7 @@ end
 function randmtzig_fill_randn!(A)
     ccall(dlsym(Base.librandom, :randmtzig_fill_randn),
           Void,
-          (Ptr{Float64}, Uint32), 
+          (Ptr{Float64}, Int), 
           A, numel(A))
     return A
 end
@@ -187,7 +187,7 @@ end
 function randmtzig_fill_exprnd!(A)
     ccall(dlsym(Base.librandom, :randmtzig_fill_exprnd),
           Void,
-          (Ptr{Float64}, Uint32), 
+          (Ptr{Float64}, Int), 
           A, numel(A))
     return A
 end

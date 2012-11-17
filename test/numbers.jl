@@ -39,7 +39,7 @@
 @assert bool(-1.0) == true
 @assert bool(ComplexPair(0,0)) == false
 @assert bool(ComplexPair(1,0)) == true
-@assert bool(ComplexPair(0,1)) == true
+@assert_fails bool(ComplexPair(0,1)) == true
 @assert bool(0//1) == false
 @assert bool(1//1) == true
 @assert bool(1//2) == true
@@ -1034,6 +1034,34 @@ end
 @assert isa(0b11111111111111111111111111111111,Uint32)
 @assert isa(0b111111111111111111111111111111111,Uint64)
 
+# octal literals
+
+@assert 0o10 == 0x8
+@assert 0o100 == 0x40
+@assert 0o1000 == 0x200
+@assert 0o724 == 0x1d4
+@assert isa(0o377,Uint8)
+@assert isa(0o00,Uint8)
+@assert isa(0o000,Uint16)
+@assert isa(0o00000,Uint16)
+@assert isa(0o000000,Uint32)
+@assert isa(0o0000000000,Uint32)
+@assert isa(0o00000000000,Uint64)
+@assert isa(0o11,Uint8)
+@assert isa(0o111,Uint8)
+@assert isa(0o11111,Uint16)
+@assert isa(0o111111,Uint16)
+@assert isa(0o1111111111,Uint32)
+@assert isa(0o11111111111,Uint32)
+
+# float32 literals
+@assert isa(1f0,Float32)
+@assert isa(1.f0,Float32)
+@assert isa(1.0f0,Float32)
+@assert 1f0 == 1.
+@assert isa(1f1,Float32)
+@assert 1f1 == 10.
+
 # custom rounding and significant-digit ops
 function approx_eq(a, b, tol)
     abs(a - b) < tol
@@ -1072,3 +1100,17 @@ approx_eq(a, b) = approx_eq(a, b, 1e-6)
 @assert hex(~uint128(0)) == "f"^32
 @assert uint128(~0) == ~uint128(0)
 @assert int128(~0) == ~int128(0)
+
+# issue 1552
+@assert isa(convert(Rational{Int8},pi),Rational{Int8})
+@assert convert(Rational{Int8},pi) == 22//7
+@assert convert(Rational{Int64},0.957762604052997) == 42499549//44373782
+@assert convert(Rational{Int16},0.929261477046077) == 11639//12525
+@assert convert(Rational{Int16},0.2264705884044309) == 77//340
+@assert convert(Rational{Int16},0.39999899264235683) == 2//5
+@assert convert(Rational{Int16},1.1264233500618559e-5) == 0//1
+@assert convert(Rational{Uint16},1.1264233500618559e-5) == 1//65535
+@assert convert(Rational{Uint16},0.6666652791223875) == 2//3
+@assert convert(Rational{Int8},0.9374813124660655) == 15//16
+@assert convert(Rational{Int8},0.003803032342443835) == 0//1
+@assert convert(Rational{Uint8},0.003803032342443835) == 1//255

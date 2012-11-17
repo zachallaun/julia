@@ -10,11 +10,11 @@
 # - state-interrogating functions
 # - cleaning up unused callbacks
 
-require("cairo.jl")
+require("cairo")
 
 module Tk
-import Base.*
-import Cairo.*
+using Base
+using Cairo
 
 export Window, Button, TkCanvas, Canvas, pack, place, tcl_eval, TclError,
     cairo_surface_for, width, height, reveal, cairo_context, cairo_surface,
@@ -92,11 +92,10 @@ type TkWidget
     global Window
     function Window(title, w, h)
         wpath = ".jl_win$ID"; ID += 1
-        tcl_eval("frame $wpath -width $w -height $h")
-        tcl_eval("wm manage $wpath")
+        tcl_eval("toplevel $wpath -width $w -height $h")
         tcl_eval("wm title $wpath \"$title\"")
         tcl_doevent()
-        new(wpath, "frame", nothing)
+        new(wpath, "toplevel", nothing)
     end
 end
 

@@ -132,9 +132,9 @@ x = (2,3)
 
 # bits types
 if WORD_SIZE == 64
-    @assert isa((()->box(Ptr{Int8},unbox(Int64,0)))(), Ptr{Int8})
+    @assert isa((()->Intrinsics.box(Ptr{Int8},Intrinsics.unbox(Int64,0)))(), Ptr{Int8})
 else
-    @assert isa((()->box(Ptr{Int8},unbox(Int32,0)))(), Ptr{Int8})
+    @assert isa((()->Intrinsics.box(Ptr{Int8},Intrinsics.unbox(Int32,0)))(), Ptr{Int8})
 end
 @assert isa(convert(Char,65), Char)
 
@@ -241,6 +241,33 @@ glotest()
 
 # syntax
 @assert (true ? 1 : false ? 2 : 3) == 1
+
+# undefinedness
+type UndefField
+    field
+    UndefField() = new()
+end
+
+begin
+    local a
+    a = cell(2)
+    @assert !isdefined(a,1) && !isdefined(a,2)
+    a[1] = 1
+    @assert isdefined(a,1) && !isdefined(a,2)
+    a = Array(Float64,1)
+    @assert isdefined(a,1)
+    @assert isdefined(a)
+    @assert_fails isdefined(a,2)
+
+    @assert isdefined("a",:data)
+    a = UndefField()
+    @assert !isdefined(a, :field)
+    @assert_fails isdefined(a, :foo)
+
+    @assert_fails isdefined(2)
+    @assert_fails isdefined(2, :a)
+    @assert_fails isdefined("a", 2)
+end
 
 # dispatch
 begin
@@ -352,6 +379,8 @@ type SI{m, s, kg}
     value::FloatingPoint
 end
 
+import Base.*
+
 *{m1, m2, s1, s2, kg1, kg2}(x::SI{m1, s1, kg1}, y::SI{m2, s2, kg2}) = SI{m1 + m2, s1 + s2, kg1 + kg2}(x.value * y.value)
 
 begin
@@ -396,4 +425,17 @@ begin
         end
     end
     @assert g() == 2
+end
+
+# issue #1442
+type S1442{T}
+end
+
+begin
+    local f1442
+    f1442(::CompositeKind) = 1
+    f1442{T}(::Type{S1442{T}}) = 2
+
+    @assert f1442(S1442{Int}) == 2
+    @assert f1442(CompositeKind) == 1
 end

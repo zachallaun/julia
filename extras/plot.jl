@@ -1,12 +1,14 @@
 
-load("winston.jl")
+load("color")
+load("winston")
 
 module Plot
 
-import Base.*
-import Winston.*
+using Base
+using Winston
+import Color
 
-export plot, semilogx, semilogy, loglog
+export imagesc, plot, semilogx, semilogy, loglog
 export file
 
 function plot(args...)
@@ -33,7 +35,7 @@ function loglog(args...)
     _plot(p, args...)
 end
 
-const chartokens = {
+const chartokens = [
     '-' => {"linestyle" => "solid"},
     ':' => {"linestyle" => "dotted"},
     ';' => {"linestyle" => "dotdashed"},
@@ -56,12 +58,12 @@ const chartokens = {
     'b' => {"color" => "blue"},
     'w' => {"color" => "white"},
     'k' => {"color" => "black"},
-}
+]
 
 function _parse_style(spec::String)
     style = Dict()
 
-    for (k,v) in { "--" => "dashed", "-." => "dotdashed" }
+    for (k,v) in [ "--" => "dashed", "-." => "dotdashed" ]
         splitspec = split(spec, k)
         if length(splitspec) > 1
             style["linestyle"] = v
@@ -104,7 +106,7 @@ function _plot(p::FramedPlot, args...)
             # TODO
         else
             y = shift(args)
-            style = { "linestyle" => "solid" } # TODO:cycle colors
+            style = [ "linestyle" => "solid" ] # TODO:cycle colors
             if length(args) > 0 && typeof(args[1]) <: String
                 style = _parse_style(shift(args))
             end
@@ -118,5 +120,34 @@ function _plot(p::FramedPlot, args...)
     end
     p
 end
+
+typealias Interval (Real,Real)
+
+function data2rgb{T<:Real}(data::Array{T,2}, limits::Interval, colormap)
+    img = similar(data, Uint32)
+    ncolors = numel(colormap)
+    for i = 1:numel(data)
+        idx = iceil(ncolors*(data[i] - limits[1])/(limits[2] - limits[1]))
+        if idx < 1 idx = 1 end
+        if idx > ncolors idx = ncol end
+        img[i] = colormap[idx]
+    end
+    img
+end
+
+RainbowColorMap() = [ Color.rgb2hex(Color.hsv2rgb(i/256,1,1)...)::Uint32 for i = 0:255 ]
+
+_default_colormap = RainbowColorMap()
+
+function imagesc{T<:Real}(xrange::Interval, yrange::Interval, data::Array{T,2}, clims::Interval)
+    p = FramedPlot()
+    setattr(p, "xrange", xrange)
+    setattr(p, "yrange", reverse(yrange))
+    img = data2rgb(data, clims, _default_colormap)
+    add(p, Image(xrange, reverse(yrange), img))
+    p
+end
+
+imagesc(xrange, yrange, data) = imagesc(xrange, yrange, data, (min(data),max(data)))
 
 end # module

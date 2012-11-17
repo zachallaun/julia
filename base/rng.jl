@@ -1,7 +1,7 @@
 module RNG
 
-import Base.*
-import Base.LibRandom.*
+using Base
+using Base.LibRandom
 
 export librandom_init, srand,
        rand, rand!,
@@ -156,9 +156,7 @@ rand(r::Rng, dims::Int...) = rand(r, dims)
 
 dsfmt_randui32() = dsfmt_gv_genrand_uint32()
 
-dsfmt_randui64() =
-    box(Uint64,or_int(zext64(unbox(Uint32,dsfmt_randui32())),
-                      shl_int(zext64(unbox(Uint32,dsfmt_randui32())), 32)))
+dsfmt_randui64() = uint64(dsfmt_randui32()) | (uint64(dsfmt_randui32())<<32)
 
 randi(::Type{Uint32})  = dsfmt_randui32()
 randi(::Type{Uint64})  = dsfmt_randui64()
@@ -267,10 +265,10 @@ end
 
 function randg!(a::Real, A::Array{Float64})
     if a <= 0. error("shape parameter a must be > 0") end
-    d = (a < 1. ? a + 1 : a) - 1.0/3.0
+    d = (a <= 1. ? a + 1 : a) - 1.0/3.0
     c = 1.0/sqrt(9.0d)
     for i in 1:numel(A) A[i] = randg2(d, c) end
-    if a < 1.
+    if a <= 1.
         ainv = 1./a
         for i in 1:numel(A) A[i] *= rand()^ainv end
     end
@@ -279,7 +277,7 @@ end
 
 function randg(a::Real)
     if a <= 0. error("shape parameter a must be > 0") end
-    d = (a < 1. ? a + 1 : a) - 1.0/3.0
+    d = (a <= 1. ? a + 1 : a) - 1.0/3.0
     randg2(d, 1.0/sqrt(9.0d)) * (a > 1. ? 1. : rand()^(1./a))
 end
 

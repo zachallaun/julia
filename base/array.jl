@@ -30,6 +30,8 @@ strides{T}(a::Array{T,1}) = (1,)
 strides{T}(a::Array{T,2}) = (1, size(a,1))
 strides{T}(a::Array{T,3}) = (1, size(a,1), size(a,1)*size(a,2))
 
+isassigned(a::Array, i::Int...) = isdefined(a, i...)
+
 ## copy ##
 
 function copy_to{T}(dest::Array{T}, dsto, src::Array{T}, so, N)
@@ -186,22 +188,23 @@ ones(args...)               = fill!(Array(Float64, args...), float64(1))
 trues(args...)  = fill(true, args...)
 falses(args...) = fill(false, args...)
 
-eye(n::Int) = eye(n, n)
-function eye(m::Int, n::Int)
-    a = zeros(m,n)
+function eye(T::Type, m::Int, n::Int)
+    a = zeros(T,m,n)
     for i = 1:min(m,n)
-        a[i,i] = 1
+        a[i,i] = one(T)
     end
     return a
 end
+eye(m::Int, n::Int) = eye(Float64, m, n)
+eye(T::Type, n::Int) = eye(T, n, n)
+eye(n::Int) = eye(Float64, n)
+eye{T}(x::StridedMatrix{T}) = eye(T, size(x, 1), size(x, 2))
 function one{T}(x::StridedMatrix{T})
-    m, n = size(x)
-    a = zeros(T,size(x))
-    for i = 1:min(m,n)
-        a[i,i] = 1
-    end
-    return a
+    m,n = size(x)
+    if m != n; error("Multiplicative identity only defined for square matrices!"); end;
+    eye(T, m)
 end
+
 
 function linspace(start::Real, stop::Real, n::Integer)
     (start, stop) = promote(start, stop)
@@ -301,7 +304,7 @@ end
 
 ## Indexing: ref ##
 
-ref{T}(a::Array{T,0}) = arrayref(a,1)
+ref(a::Array) = arrayref(a,1)
 
 ref(A::Array, i0::Integer) = arrayref(A,int(i0))
 ref(A::Array, i0::Integer, i1::Integer) = arrayref(A,int(i0),int(i1))
@@ -968,15 +971,6 @@ function complex{T<:Real}(A::Array{T}, B::Real)
     return F
 end
 
-function complex{T<:Real}(A::Array{T})
-    z = zero(T)
-    F = similar(A, typeof(complex(z,z)))
-    for i=1:numel(A)
-        F[i] = complex(A[i], z)
-    end
-    return F
-end
-
 ## Binary comparison operators ##
 
 for (f,scalarf) in ((:(.==),:(==)), (:.<, :<), (:.!=,:!=), (:.<=,:<=))
@@ -1611,8 +1605,7 @@ function map_to(f, dest::StridedArray, A::StridedArray, B::StridedArray)
     end
     return dest
 end
-function map_to2(f, first, dest::StridedArray,
-                 A::StridedArray, B::StridedArray)
+function map_to2(f, first, dest::StridedArray, A::StridedArray, B::StridedArray)
     dest[1] = first
     for i=2:numel(A)
         dest[i] = f(A[i], B[i])
@@ -1627,48 +1620,6 @@ function map(f, A::StridedArray, B::StridedArray)
     end
     first = f(A[1], B[1])
     dest = similar(A, typeof(first), shp)
-    return map_to2(f, first, dest, A, B)
-end
-
-function map_to(f, dest::StridedArray, A::StridedArray, B::Number)
-    for i=1:numel(A)
-        dest[i] = f(A[i], B)
-    end
-    return dest
-end
-function map_to2(f, first, dest::StridedArray, A::StridedArray, B::Number)
-    dest[1] = first
-    for i=2:numel(A)
-        dest[i] = f(A[i], B)
-    end
-    return dest
-end
-
-function map(f, A::StridedArray, B::Number)
-    if isempty(A); return A; end
-    first = f(A[1], B)
-    dest = similar(A, typeof(first))
-    return map_to2(f, first, dest, A, B)
-end
-
-function map_to(f, dest::StridedArray, A::Number, B::StridedArray)
-    for i=1:numel(B)
-        dest[i] = f(A, B[i])
-    end
-    return dest
-end
-function map_to2(f, first, dest::StridedArray, A::Number, B::StridedArray)
-    dest[1] = first
-    for i=2:numel(B)
-        dest[i] = f(A, B[i])
-    end
-    return dest
-end
-
-function map(f, A::Number, B::StridedArray)
-    if isempty(A); return A; end
-    first = f(A, B[1])
-    dest = similar(B, typeof(first))
     return map_to2(f, first, dest, A, B)
 end
 

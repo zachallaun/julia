@@ -1,5 +1,10 @@
+load("color")
+load("openlib")
+
 module Cairo
-import Base.*
+using Base
+using Color
+using Openlib
 
 export CairoSurface, finish, destroy, status,
     CAIRO_FORMAT_ARGB32,
@@ -25,15 +30,14 @@ export CairoSurface, finish, destroy, status,
     open, close, curve, polygon, layout_text, text, textwidth, textheight,
     TeXLexer, tex2pango, SVGRenderer
 
-load("color.jl")
+import Base.get
 
-load("openlib.jl")
+global fill, open, close, symbol
 
 try
     global _jl_libcairo = openlib("libcairo")
     global _jl_libpangocairo = openlib("libpangocairo-1.0")
     global _jl_libgobject = openlib("libgobject-2.0")
-    global libcairo_wrapper = dlopen("libcairo_wrapper")
 catch err
     println("Oops, could not load cairo or pango libraries. Are they installed?")
     if OS_NAME == :Darwin
@@ -49,26 +53,36 @@ catch err
     throw(err)
 end
 
+function cairo_write_to_ios_callback(s::Ptr{Void}, buf::Ptr{Uint8}, len::Uint32)
+    n = ccall(:ios_write, Uint, (Ptr{Void}, Ptr{Void}, Uint), s, buf, len)
+    ret::Int32 = (n == len) ? 0 : 11
+end
+
 type CairoSurface
     ptr::Ptr{Void}
     width::Float64
     height::Float64
+    data::Array{Uint32,2}
 
     function CairoSurface(ptr::Ptr{Void}, w, h)
         self = new(ptr, w, h)
         finalizer(self, destroy)
         self
     end
+
+    function CairoSurface(ptr::Ptr{Void}, w, h, data)
+        self = new(ptr, w, h, data)
+        finalizer(self, destroy)
+        self
+    end
 end
 
-function finish(surface::CairoSurface)
-    ccall(dlsym(_jl_libcairo,:cairo_surface_finish),
-        Void, (Ptr{Void},), surface.ptr)
-end
-
-function destroy(surface::CairoSurface)
-    ccall(dlsym(_jl_libcairo,:cairo_surface_destroy),
-        Void, (Ptr{Void},), surface.ptr)
+for name in ("destroy","finish","flush","mark_dirty")
+    @eval begin
+        $(Base.symbol(name))(surface::CairoSurface) =
+            ccall(dlsym(_jl_libcairo,$(strcat("cairo_surface_",name))),
+                Void, (Ptr{Void},), surface.ptr)
+    end
 end
 
 function status(surface::CairoSurface)
@@ -97,6 +111,19 @@ function CairoARGBSurface(w::Integer, h::Integer)
     CairoSurface(ptr, w, h)
 end
 
+function CairoImageSurface(img::Array{Uint32,2}, format::Integer)
+    data = img'
+    w,h = size(data)
+    stride = format_stride_for_width(format, w)
+    @assert stride == 4w
+    ptr = ccall(dlsym(_jl_libcairo,:cairo_image_surface_create_for_data),
+        Ptr{Void}, (Ptr{Void},Int32,Int32,Int32,Int32),
+        data, format, w, h, stride)
+    CairoSurface(ptr, w, h, data)
+end
+CairoARGBSurface(img) = CairoImageSurface(img, CAIRO_FORMAT_ARGB32)
+CairoRGBSurface(img) = CairoImageSurface(img, CAIRO_FORMAT_RGB24)
+
 function CairoPDFSurface(filename::String, w_pts::Real, h_pts::Real)
     ptr = ccall(dlsym(_jl_libcairo,:cairo_pdf_surface_create), Ptr{Void},
         (Ptr{Uint8},Float64,Float64), bytestring(filename), w_pts, h_pts)
@@ -119,9 +146,9 @@ function CairoXlibSurface(display, drawable, visual, w, h)
 end
 
 function CairoSVGSurface(stream::IOStream, w, h)
+    callback = cfunction(cairo_write_to_ios_callback, Int32, (Ptr{Void},Ptr{Uint8},Uint32))
     ptr = ccall(dlsym(_jl_libcairo,:cairo_svg_surface_create_for_stream), Ptr{Void},
-                (Ptr{Void}, Ptr{Void}, Float64, Float64),
-                dlsym(libcairo_wrapper,:cairo_write_to_ios_callback), stream, w, h)
+                (Ptr{Void}, Ptr{Void}, Float64, Float64), callback, stream, w, h)
     CairoSurface(ptr, w, h)
 end
 
@@ -145,6 +172,11 @@ function surface_create_similar(s::CairoSurface, w, h)
                 (Ptr{Void}, Int32, Int32, Int32),
                 s.ptr, CAIRO_CONTENT_COLOR_ALPHA, w, h)
     CairoSurface(ptr, w, h)
+end
+
+function format_stride_for_width(format::Integer, width::Integer)
+    ccall(dlsym(_jl_libcairo,:cairo_format_stride_for_width), Int32,
+        (Int32,Int32), format, width)
 end
 
 # -----------------------------------------------------------------------------
@@ -368,13 +400,13 @@ function _set_color( ctx::CairoContext, color )
 end
 
 function _set_line_type(ctx::CairoContext, nick::String)
-    const nick2name = {
+    const nick2name = [
        "dot"       => "dotted",
        "dash"      => "shortdashed",
        "dashed"    => "shortdashed",
-    }
+    ]
     # XXX:should be scaled by linewidth
-    const name2dashes = {
+    const name2dashes = [
         "solid"           => Float64[],
         "dotted"          => [1.,3.],
         "dotdashed"       => [1.,3.,4.,4.],
@@ -382,7 +414,7 @@ function _set_line_type(ctx::CairoContext, nick::String)
         "shortdashed"     => [4.,4.],
         "dotdotdashed"    => [1.,3.,1.,3.,4.,4.],
         "dotdotdotdashed" => [1.,3.,1.,3.,1.,3.,4.,4.],
-    }
+    ]
     name = get(nick2name, nick, nick)
     if has(name2dashes, name)
         set_dash(ctx, name2dashes[name])
@@ -425,7 +457,7 @@ function _str_size_to_pts( str )
     num_xx = float64(m.captures[1])
     units = m.captures[2]
     # convert to postscipt pt = in/72
-    const xx2pt = { "in"=>72., "pt"=>1., "mm"=>2.835, "cm"=>28.35 }
+    const xx2pt = [ "in"=>72., "pt"=>1., "mm"=>2.835, "cm"=>28.35 ]
     num_pt = num_xx*xx2pt[units]
     return num_pt
 end
@@ -471,7 +503,7 @@ end
 
 ## state commands
 
-const __pl_style_func = {
+const __pl_style_func = [
     "color"     => _set_color,
     "linecolor" => _set_color,
     "fillcolor" => _set_color,
@@ -480,7 +512,7 @@ const __pl_style_func = {
     "linewidth" => set_line_width,
     "filltype"  => set_fill_type,
     "cliprect"  => set_clip_rect,
-}
+]
 
 function set( self::CairoRenderer, key::String, value )
     set(self.state, key, value )
@@ -563,7 +595,7 @@ function symbols( self::CairoRenderer, x, y )
     name = pop(splitname)
     filled = contains(splitname, "solid") || contains(splitname, "filled")
 
-    const symbol_funcs = {
+    const symbol_funcs = [
         "asterisk" => (c, x, y, r) -> (
             _move_to(c, x, y+r);
             _line_to(c, x, y-r);
@@ -623,7 +655,7 @@ function symbols( self::CairoRenderer, x, y )
             _line_to(c, x+0.5r, y-0.866r);
             close_path(c)
         ),
-    }
+    ]
     default_symbol_func = (ctx,x,y,r) -> (
         new_sub_path(ctx);
         _circle(ctx,x,y,r)
@@ -666,6 +698,9 @@ function image(r::CairoRenderer, s::CairoSurface, x, y, w, h)
     restore(r.ctx)
 end
 
+image(r::CairoRenderer, img::Array{Uint32,2}, x, y, w, h) =
+    image(r, CairoRGBSurface(img), x, y, w, h)
+
 function polygon( self::CairoRenderer, points::Vector )
     move(self, points[1])
     for i in 2:length(points)
@@ -694,13 +729,13 @@ function text( self::CairoRenderer, p, text )
     layout_text(self, text)
     update_layout(self.ctx)
 
-    const _xxx = {
+    const _xxx = [
         "center"    => 0.5,
         "left"      => 0.,
         "right"     => 1.,
         "top"       => 0.,
         "bottom"    => 1.,
-    }
+    ]
     extents = get_layout_size(self.ctx)
     dx = -_xxx[halign]*extents[1]
     dy = _xxx[valign]*extents[2]
@@ -774,7 +809,7 @@ function peek( self::TeXLexer )
     return token
 end
 
-const _common_token_dict = {
+const _common_token_dict = [
     L"\{"               => L"{",
     L"\}"               => L"}",
     L"\_"               => L"_",
@@ -784,17 +819,17 @@ const _common_token_dict = {
     ## ignore stray brackets
     L"{"                => L"",
     L"}"                => L"",
-}
+]
 
-const _text_token_dict = {
+const _text_token_dict = [
     ## non-math symbols (p438)
     L"\S"               => E"\ua7",
     L"\P"               => E"\ub6",
     L"\dag"             => E"\u2020",
     L"\ddag"            => E"\u2021",
-}
+]
 
-const _math_token_dict = {
+const _math_token_dict = [
 
     L"-"                => E"\u2212", # minus sign
 
@@ -1045,7 +1080,7 @@ const _math_token_dict = {
     L"\arcdeg"          => E"\ub0",
     L"\arcmin"          => E"\u2032",
     L"\arcsec"          => E"\u2033",
-}
+]
 
 function map_text_token(token::String)
     if has(_text_token_dict, token)
