@@ -67,12 +67,6 @@ typedef struct {
     jl_value_t *data[1];
 } jl_tuple_t;
 
-typedef struct {
-    JL_STRUCT_TYPE
-    size_t length;
-    jl_value_t *data[2];
-} jl_tuple2_t;
-
 // pseudo-object to track managed malloc pointers
 // currently only referenced from an array's data owner field
 typedef struct _jl_mallocptr_t {
@@ -164,19 +158,21 @@ typedef struct _jl_lambda_info_t {
     struct _jl_function_t *unspecialized;
     // array of all lambda infos with code generated from this one
     jl_array_t *specializations;
-    int8_t inferred;
-    jl_value_t *file;
-    ptrint_t line;
     struct _jl_module_t *module;
+    struct _jl_lambda_info_t *def;  // original this is specialized from
+    jl_value_t *capt;  // captured var info
+    jl_value_t *file;
+    int32_t line;
+    int8_t inferred;
 
     // hidden fields:
+    // flag telling if inference is running on this function
+    // used to avoid infinite recursion
+    int8_t inInference : 1;
+    int8_t inCompile : 1;
     jl_fptr_t fptr;        // jlcall entry point
     void *functionObject;  // jlcall llvm Function
     void *cFunctionObject; // c callable llvm Function
-    // flag telling if inference is running on this function
-    // used to avoid infinite recursion
-    uptrint_t inInference : 1;
-    uptrint_t inCompile : 1;
 } jl_lambda_info_t;
 
 #define LAMBDA_INFO_NW (NWORDS(sizeof(jl_lambda_info_t))-1)
@@ -206,7 +202,7 @@ typedef struct {
     // a type alias, for example, might make a type constructor that is
     // not the original.
     jl_value_t *primary;
-    jl_tuple_t *cache;
+    jl_value_t *cache;
 } jl_typename_t;
 
 typedef struct {
@@ -364,9 +360,9 @@ extern jl_struct_type_t *jl_weakref_type;
 extern DLLEXPORT jl_struct_type_t *jl_ascii_string_type;
 extern DLLEXPORT jl_struct_type_t *jl_utf8_string_type;
 extern DLLEXPORT jl_struct_type_t *jl_errorexception_type;
-extern jl_struct_type_t *jl_typeerror_type;
 extern DLLEXPORT jl_struct_type_t *jl_loaderror_type;
-extern DLLEXPORT jl_struct_type_t *jl_backtrace_type;
+extern jl_struct_type_t *jl_typeerror_type;
+extern jl_struct_type_t *jl_methoderror_type;
 extern jl_value_t *jl_stackovf_exception;
 extern jl_value_t *jl_memory_exception;
 extern jl_value_t *jl_divbyzero_exception;
@@ -394,7 +390,7 @@ extern jl_bits_type_t *jl_int64_type;
 extern jl_bits_type_t *jl_uint64_type;
 extern jl_bits_type_t *jl_float32_type;
 extern jl_bits_type_t *jl_float64_type;
-
+extern jl_bits_type_t *jl_voidpointer_type;
 extern jl_bits_type_t *jl_pointer_type;
 
 extern jl_type_t *jl_array_uint8_type;
@@ -419,7 +415,6 @@ extern jl_value_t *jl_true;
 extern jl_value_t *jl_false;
 DLLEXPORT extern jl_value_t *jl_nothing;
 
-extern jl_function_t *jl_method_missing_func;
 extern jl_function_t *jl_unprotect_stack_func;
 extern jl_function_t *jl_bottom_func;
 
@@ -455,7 +450,7 @@ extern jl_sym_t *const_sym;   extern jl_sym_t *thunk_sym;
 extern jl_sym_t *anonymous_sym;  extern jl_sym_t *underscore_sym;
 extern jl_sym_t *abstracttype_sym; extern jl_sym_t *bitstype_sym;
 extern jl_sym_t *compositetype_sym; extern jl_sym_t *type_goto_sym;
-extern jl_sym_t *global_sym;
+extern jl_sym_t *global_sym;  extern jl_sym_t *tuple_sym;
 
 #ifdef __LP64__
 #define NWORDS(sz) (((sz)+7)>>3)
@@ -694,6 +689,7 @@ DLLEXPORT jl_value_t *jl_box_int64(int64_t x);
 jl_value_t *jl_box_uint64(uint64_t x);
 jl_value_t *jl_box_float32(float x);
 jl_value_t *jl_box_float64(double x);
+jl_value_t *jl_box_voidpointer(void *x);
 jl_value_t *jl_box8 (jl_bits_type_t *t, int8_t  x);
 jl_value_t *jl_box16(jl_bits_type_t *t, int16_t x);
 jl_value_t *jl_box32(jl_bits_type_t *t, int32_t x);
@@ -709,6 +705,7 @@ int64_t jl_unbox_int64(jl_value_t *v);
 uint64_t jl_unbox_uint64(jl_value_t *v);
 float jl_unbox_float32(jl_value_t *v);
 double jl_unbox_float64(jl_value_t *v);
+void *jl_unbox_voidpointer(jl_value_t *v);
 
 #ifdef __LP64__
 #define jl_box_long(x)   jl_box_int64(x)
@@ -806,7 +803,7 @@ void jl_init_intrinsic_functions(void);
 void jl_init_tasks(void *stack, size_t ssize);
 void jl_init_serializer(void);
 
-void jl_save_system_image(char *fname, char *startscriptname);
+void jl_save_system_image(char *fname);
 void jl_restore_system_image(char *fname);
 
 // front end interface
@@ -838,6 +835,7 @@ DLLEXPORT jl_binding_t *jl_get_binding(jl_module_t *m, jl_sym_t *var);
 jl_binding_t *jl_get_binding_wr(jl_module_t *m, jl_sym_t *var);
 jl_binding_t *jl_get_binding_for_method_def(jl_module_t *m, jl_sym_t *var);
 DLLEXPORT int jl_boundp(jl_module_t *m, jl_sym_t *var);
+DLLEXPORT int jl_defines_or_exports_p(jl_module_t *m, jl_sym_t *var);
 DLLEXPORT int jl_is_const(jl_module_t *m, jl_sym_t *var);
 DLLEXPORT jl_value_t *jl_get_global(jl_module_t *m, jl_sym_t *var);
 DLLEXPORT void jl_set_global(jl_module_t *m, jl_sym_t *var, jl_value_t *val);
@@ -866,6 +864,7 @@ jl_value_t *jl_interpret_toplevel_expr_with(jl_value_t *e,
                                             jl_value_t **locals, size_t nl);
 jl_value_t *jl_interpret_toplevel_expr_in(jl_module_t *m, jl_value_t *e,
                                           jl_value_t **locals, size_t nl);
+jl_module_t *jl_base_relative_to(jl_module_t *m);
 void jl_type_infer(jl_lambda_info_t *li, jl_tuple_t *argtypes,
                    jl_lambda_info_t *def);
 
@@ -883,13 +882,14 @@ jl_array_t *jl_lam_locals(jl_expr_t *l);
 jl_array_t *jl_lam_vinfo(jl_expr_t *l);
 jl_array_t *jl_lam_capt(jl_expr_t *l);
 jl_expr_t *jl_lam_body(jl_expr_t *l);
+jl_value_t *jl_ast_rettype(jl_lambda_info_t *li, jl_value_t *ast);
 jl_sym_t *jl_decl_var(jl_value_t *ex);
 DLLEXPORT int jl_is_rest_arg(jl_value_t *ex);
 
 jl_value_t *jl_prepare_ast(jl_lambda_info_t *li, jl_tuple_t *sparams);
 
 jl_value_t *jl_compress_ast(jl_lambda_info_t *li, jl_value_t *ast);
-jl_value_t *jl_uncompress_ast(jl_tuple_t *data);
+jl_value_t *jl_uncompress_ast(jl_lambda_info_t *li, jl_value_t *data);
 
 static inline int jl_vinfo_capt(jl_array_t *vi)
 {
@@ -1010,19 +1010,14 @@ DLLEXPORT extern volatile sig_atomic_t jl_defer_signal;
 
 // tasks and exceptions
 
-// context that needs to be restored around a try block
-typedef struct _jl_savestate_t {
-    // eh_task is who I yield to for exception handling
-    struct _jl_task_t *eh_task;
-    // eh_ctx is where I go to handle an exception yielded to me
-    jl_jmp_buf *eh_ctx;
-    ptrint_t err : 1;
-    ptrint_t bt : 1;  // whether exceptions caught here build a backtrace
+// info describing an exception handler
+typedef struct _jl_handler_t {
+    jl_jmp_buf eh_ctx;
 #ifdef JL_GC_MARKSWEEP
     jl_gcframe_t *gcstack;
 #endif
-    struct _jl_savestate_t *prev;
-} jl_savestate_t;
+    struct _jl_handler_t *prev;
+} jl_handler_t;
 
 typedef struct _jl_task_t {
     JL_STRUCT_TYPE
@@ -1043,8 +1038,10 @@ typedef struct _jl_task_t {
     size_t ssize;
     jl_function_t *start;
     jl_value_t *result;
-    // exception state and per-task dynamic parameters
-    jl_savestate_t state;
+    // current exception handler
+    jl_handler_t *eh;
+    // saved gc stack top for context switches
+    jl_gcframe_t *gcstack;
 } jl_task_t;
 
 extern DLLEXPORT jl_task_t * volatile jl_current_task;
@@ -1053,8 +1050,9 @@ extern DLLEXPORT jl_value_t *jl_exception_in_transit;
 
 jl_task_t *jl_new_task(jl_function_t *start, size_t ssize);
 jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg);
-DLLEXPORT void jl_raise(jl_value_t *e);
-DLLEXPORT void jl_register_toplevel_eh(void);
+DLLEXPORT void jl_throw(jl_value_t *e);
+DLLEXPORT void jl_rethrow();
+DLLEXPORT void jl_rethrow_other(jl_value_t *e);
 
 DLLEXPORT jl_array_t *jl_takebuf_array(ios_t *s);
 DLLEXPORT jl_value_t *jl_takebuf_string(ios_t *s);
@@ -1073,20 +1071,17 @@ DLLEXPORT int jl_cpu_cores(void);
 #define jl_exit   exit
 #define JL_STREAM ios_t
 
-static inline void jl_eh_restore_state(jl_savestate_t *ss)
+static inline void jl_eh_restore_state(jl_handler_t *eh)
 {
     JL_SIGATOMIC_BEGIN();
-    jl_current_task->state.eh_task = ss->eh_task;
-    jl_current_task->state.eh_ctx = ss->eh_ctx;
-    jl_current_task->state.bt = ss->bt;
-    jl_current_task->state.prev = ss->prev;
+    jl_current_task->eh = eh->prev;
 #ifdef JL_GC_MARKSWEEP
-    jl_pgcstack = ss->gcstack;
+    jl_pgcstack = eh->gcstack;
 #endif
     JL_SIGATOMIC_END();
 }
 
-DLLEXPORT void jl_enter_handler(jl_savestate_t *ss, jl_jmp_buf *handlr);
+DLLEXPORT void jl_enter_handler(jl_handler_t *eh);
 DLLEXPORT void jl_pop_handler(int n);
 
 #if defined(__WIN32__)
@@ -1104,17 +1099,16 @@ DLLEXPORT void jl_pop_handler(int n);
 #define jl_longjmp(a,b) siglongjmp(a,b)
 #endif
 
-#define JL_TRY                                                          \
-    int i__tr, i__ca; jl_savestate_t __ss; jl_jmp_buf __handlr;            \
-    jl_enter_handler(&__ss, &__handlr);                                 \
-    if (!jl_setjmp(__handlr,0))                                         \
-        for (i__tr=1; i__tr; i__tr=0, jl_eh_restore_state(&__ss))
+#define JL_TRY                                                    \
+    int i__tr, i__ca; jl_handler_t __eh;                          \
+    jl_enter_handler(&__eh);                                      \
+    if (!jl_setjmp(__eh.eh_ctx,0))                                \
+        for (i__tr=1; i__tr; i__tr=0, jl_eh_restore_state(&__eh))
 
-#define JL_EH_POP() jl_eh_restore_state(&__ss)
+#define JL_EH_POP() jl_eh_restore_state(&__eh)
 
 #define JL_CATCH                                                \
     else                                                        \
-        for (i__ca=1, jl_current_task->state.err = 0,           \
-             jl_eh_restore_state(&__ss); i__ca; i__ca=0)
+        for (i__ca=1, jl_eh_restore_state(&__eh); i__ca; i__ca=0)
 
 #endif

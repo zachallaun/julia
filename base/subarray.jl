@@ -56,6 +56,8 @@ function sub{T,N}(A::AbstractArray{T,N}, i::NTuple{N,RangeIndex})
     SubArray{T,L,typeof(A),typeof(i)}(A, i)
 end
 
+sub{N}(A::SubArray, i::NTuple{N,RangeIndex}) = sub(A, i...)
+
 sub(A::AbstractArray, i::RangeIndex...) = sub(A, i)
 
 function sub(A::SubArray, i::RangeIndex...)
@@ -194,7 +196,13 @@ function ref(s::SubArray, I::Indices...)
         newindexes[i] = isa(t, Int) ? t : t[I[i]]
     end
 
-    reshape(ref(s.parent, newindexes...), ref_shape(I...))
+    rs = ref_shape(I...)
+    result = ref(s.parent, newindexes...)
+    if isequal(rs, size(result))
+        return result
+    else
+        return reshape(result, rs)
+    end
 end
 
 assign(s::SubArray, v, i::Integer) = assign(s, v, ind2sub(size(s), i)...)

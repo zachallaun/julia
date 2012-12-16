@@ -9,6 +9,13 @@ convert(T::Tuple, x::Tuple) = convert_tuple(T, x, convert)
 
 ptr_arg_convert{T}(::Type{Ptr{T}}, x) = convert(T, x)
 
+# conversion used by ccall
+cconvert(T, x) = convert(T, x)
+# use the code in ccall.cpp to safely allocate temporary pointer arrays
+cconvert{T}(::Type{Ptr{Ptr{T}}}, a::Array) = a
+# TODO: for some reason this causes a strange type inference problem
+#cconvert(::Type{Ptr{Uint8}}, s::String) = bytestring(s)
+
 type ErrorException <: Exception
     msg::String
 end
@@ -70,8 +77,6 @@ function show(io, se::ShowError)
     println("Error showing value of type ", typeof(se.val), ":")
     show(io, se.err)
 end
-
-method_missing(f, args...) = throw(MethodError(f, args))
 
 type WeakRef
     value

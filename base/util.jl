@@ -51,6 +51,15 @@ macro elapsed(ex)
     end
 end
 
+# print nothing, return value & elapsed time
+macro timed(ex)
+    quote
+        local t0 = time()
+        local val = $(esc(ex))
+        val, time()-t0
+    end
+end
+
 function peakflops(n)
     a = rand(n,n)
     t = @elapsed a*a
@@ -189,14 +198,8 @@ const load = require
 include_string(txt::ByteString) = ccall(:jl_load_file_string, Void, (Ptr{Uint8},), txt)
 
 function is_file_readable(path)
-    local f
-    try
-        f = open(bytestring(path))
-    catch
-        return false
-    end
-    close(f)
-    return true
+    s = stat(bytestring(path))
+    return isfile(s) && isreadable(s)
 end
 
 function find_in_path(name::String)
@@ -242,21 +245,17 @@ function load_now(fname::ByteString)
         end
     else
         in_load = true
-        iserr, err = false, ()
         try
-            ccall(:jl_register_toplevel_eh, Void, ())
             load_now(fname)
             for p = 1:nprocs()
                 if p != myid()
                     remote_do(p, remote_load, load_dict)
                 end
             end
-        catch e
-            iserr, err = true, e
+        finally
+            load_dict = {}
+            in_load = false
         end
-        load_dict = {}
-        in_load = false
-        if iserr throw(err); end
     end
 end
 
@@ -265,16 +264,14 @@ function remote_load(dict)
     in_remote_load = true
     try
         load_now(dict[1])
-    catch e
+    finally
         in_remote_load = false
-        throw(e)
     end
-    in_remote_load = false
     nothing
 end
 end
 
-evalfile(fname::String) = eval(parse(readall(fname))[1])
+evalfile(fname::String) = eval(Main,parse(readall(fname))[1])
 
 # help
 
@@ -300,7 +297,7 @@ function _jl_init_help()
            _jl_help_module_dict, _jl_help_function_dict
     if _jl_help_category_dict == nothing
         println("Loading help data...")
-        helpdb = evalfile("$JULIA_HOME/../lib/julia/helpdb.jl")
+        helpdb = evalfile("$JULIA_HOME/../share/julia/helpdb.jl")
         _jl_help_category_list = {}
         _jl_help_category_dict = Dict()
         _jl_help_module_dict = Dict()

@@ -2,12 +2,11 @@ require("linprog")
 
 module Metadata
 
-using Base
 using LinProgGLPK
 
 import Git
 import GLPK
-import Base.isequal, Base.isless
+import Base.isequal, Base.isless, Base.contains
 
 export parse_requires, Version, VersionSet
 
@@ -18,8 +17,12 @@ function gen_versions(pkg::String)
         open("$dir/sha1","w") do io
             println(io,sha1)
         end
+        if isfile("$pkg/REQUIRE")
+            run(`cp $pkg/REQUIRE $dir/requires`)
+        end
     end
 end
+gen_versions() = for pkg in each_package() gen_versions(pkg) end
 
 function gen_hashes(pkg::String)
     for (ver,dir) in each_tagged_version(pkg)
@@ -32,25 +35,33 @@ function gen_hashes(pkg::String)
 end
 gen_hashes() = for pkg in each_package() gen_hashes(pkg) end
 
-pkg_url(pkg::String) = readchomp("METADATA/$pkg/url")
-version(pkg::String, sha1::String) =
-    convert(VersionNumber,readchomp("METADATA/$pkg/hashes/$sha1"))
+function pkg_url(pkg::String)
+    path = "METADATA/$pkg/url"
+    isfile(path) ? readchomp(path) : nothing
+end
+
+function version(pkg::String, sha1::String)
+    path = "METADATA/$pkg/hashes/$sha1"
+    isfile(path) || Metadata.gen_hashes(pkg)
+    isfile(path) ? convert(VersionNumber,readchomp(path)) : sha1
+end
 
 each_package() = @task begin
-    for line in each_line(`git --git-dir=METADATA/.git ls-tree HEAD`)
-        m = match(r"\d{6} tree [0-9a-f]{40}\t(\S+)$", line)
-        if m != nothing && isdir("METADATA/$(m.captures[1])/versions")
-            produce(m.captures[1])
+    for line in each_line(`ls -1 METADATA`)
+        line = chomp(line)
+        # stat() chokes if we try to check if the subdirectory of a non-directory exists
+        if isdir(file_path("METADATA", line)) && isdir(file_path("METADATA", line, "versions"))
+            produce(line)
         end
     end
 end
 
 each_tagged_version(pkg::String) = @task begin
-    for line in each_line(`git --git-dir=METADATA/.git ls-tree HEAD:$pkg/versions`)
-        m = match(r"\d{6} tree [0-9a-f]{40}\t(\d\S*)$", line)
-        if m != nothing && ismatch(Base.VERSION_REGEX,m.captures[1])
-            ver = convert(VersionNumber,m.captures[1])
-            dir = "METADATA/$pkg/versions/$(m.captures[1])"
+    for line in each_line(`ls -1 $(file_path("METADATA", pkg, "versions"))`)
+        line = chomp(line)
+        if isdir(file_path("METADATA", pkg, "versions", line)) && ismatch(Base.VERSION_REGEX, line)
+            ver = convert(VersionNumber,line)
+            dir = "METADATA/$pkg/versions/$(line)"
             if isfile("$dir/sha1")
                 produce((ver,dir))
             end
@@ -139,6 +150,9 @@ function dependencies(pkgs,vers)
             file = "$dir/requires"
             if isfile(file)
                 for d in parse_requires("$dir/requires")
+                    if !contains(pkgs,d.package)
+                        error("Unknown dependency for $pkg: $(d.package)")
+                    end
                     push(deps,(v,d))
                 end
             end
@@ -167,9 +181,15 @@ function resolve(reqs::Vector{VersionSet})
         W[r,rem(i-1,n)+1] = -1
         W[r,div(i-1,n)+1] = G[i]
     end
-    lpopts = GLPK.SimplexParam()
-    lpopts["msg_lev"] = GLPK.MSG_ERR
-    w = iround(linprog_simplex(u,W,zeros(Int,length(I)),nothing,nothing,u,nothing,lpopts)[2])
+    mipopts = GLPK.IntoptParam()
+    mipopts["msg_lev"] = GLPK.MSG_ERR
+    mipopts["presolve"] = GLPK.ON
+    _, ws, flag, _ = mixintprog(u,W,-ones(Int,length(I)),nothing,nothing,u,nothing,nothing,mipopts)
+    if flag != 0
+        msg = sprint(print_linprog_flag, flag)
+        error("resolve() failed: $msg.")
+    end
+    w = iround(ws)
 
     V = [ p == v.package ? 1 : 0                     for p=pkgs, v=vers ]
     R = [ contains(r,v) ? -1 : 0                     for r=reqs, v=vers ]
@@ -178,9 +198,14 @@ function resolve(reqs::Vector{VersionSet})
           -ones(Int,length(reqs))
           zeros(Int,length(deps)) ]
 
-    x = linprog_simplex(w,[V;R;D],b,nothing,nothing,z,u,lpopts)[2]
+    _, xs, flag, _ = mixintprog(w,[V;R;D],b,nothing,nothing,z,u,nothing,mipopts)
+    if flag != 0
+        msg = sprint(print_linprog_flag, flag)
+        error("resolve() failed: $msg.")
+    end
+    x = bool(xs)
     h = (String=>ASCIIString)[]
-    for v in vers[x .> 0.5]
+    for v in vers[x]
         h[v.package] = readchomp("METADATA/$(v.package)/versions/$(v.version)/sha1")
     end
     return h

@@ -24,6 +24,12 @@
 	  (unique (cdr lst))
 	  (cons (car lst) (unique (cdr lst))))))
 
+(define (has-dups lst)
+  (if (null? lst)
+      #f
+      (or (memq (car lst) (cdr lst))
+	  (has-dups (cdr lst)))))
+
 (define (contains p expr)
   (or (p expr)
       (and (pair? expr)
@@ -32,12 +38,18 @@
 
 (define *gensyms* '())
 (define *current-gensyms* '())
+(define *gensy-counter* 1)
 (define (gensy)
   (if (null? *current-gensyms*)
-      (let ((g (gensym)))
+      (let ((g (symbol (string "#s" *gensy-counter*))))
+	(set! *gensy-counter* (+ *gensy-counter* 1))
 	(set! *gensyms* (cons g *gensyms*))
 	g)
       (begin0 (car *current-gensyms*)
 	      (set! *current-gensyms* (cdr *current-gensyms*)))))
+(define (named-gensy name)
+  (let ((g (symbol (string name "#" *gensy-counter*))))
+    (set! *gensy-counter* (+ *gensy-counter* 1))
+    g))
 (define (reset-gensyms)
   (set! *current-gensyms* *gensyms*))

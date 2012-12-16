@@ -26,7 +26,7 @@ jl_struct_type_t *jl_typector_type;
 jl_struct_type_t *jl_array_type;
 jl_typename_t *jl_array_typename;
 jl_type_t *jl_array_uint8_type;
-jl_type_t *jl_array_any_type;
+jl_type_t *jl_array_any_type=NULL;
 jl_type_t *jl_array_symbol_type;
 jl_function_t *jl_bottom_func;
 jl_struct_type_t *jl_weakref_type;
@@ -47,9 +47,10 @@ jl_struct_type_t *jl_lambda_info_type;
 jl_struct_type_t *jl_module_type;
 jl_struct_type_t *jl_errorexception_type=NULL;
 jl_struct_type_t *jl_typeerror_type;
+jl_struct_type_t *jl_methoderror_type;
 jl_struct_type_t *jl_loaderror_type;
-jl_struct_type_t *jl_backtrace_type;
 jl_bits_type_t *jl_pointer_type;
+jl_bits_type_t *jl_voidpointer_type;
 jl_value_t *jl_an_empty_cell=NULL;
 jl_value_t *jl_stackovf_exception;
 jl_value_t *jl_divbyzero_exception;
@@ -82,7 +83,7 @@ jl_sym_t *const_sym;   jl_sym_t *thunk_sym;
 jl_sym_t *anonymous_sym;  jl_sym_t *underscore_sym;
 jl_sym_t *abstracttype_sym; jl_sym_t *bitstype_sym;
 jl_sym_t *compositetype_sym; jl_sym_t *type_goto_sym;
-jl_sym_t *global_sym;
+jl_sym_t *global_sym; jl_sym_t *tuple_sym;
 
 typedef struct {
     int64_t a;
@@ -332,6 +333,8 @@ jl_lambda_info_t *jl_new_lambda_info(jl_value_t *ast, jl_tuple_t *sparams)
     li->unspecialized = NULL;
     li->specializations = NULL;
     li->name = anonymous_sym;
+    li->def = li;
+    li->capt = NULL;
     return li;
 }
 
@@ -443,7 +446,7 @@ jl_typename_t *jl_new_typename(jl_sym_t *name)
     tn->name = name;
     tn->module = jl_current_module;
     tn->primary = NULL;
-    tn->cache = jl_null;
+    tn->cache = (jl_value_t*)jl_null;
     return tn;
 }
 
@@ -695,6 +698,7 @@ UNBOX_FUNC(uint64, uint64_t)
 UNBOX_FUNC(bool,   int8_t)
 UNBOX_FUNC(float32, float)
 UNBOX_FUNC(float64, double)
+UNBOX_FUNC(voidpointer, void*)
 
 #define BOX_FUNC(typ,c_type,pfx,nw)             \
 jl_value_t *pfx##_##typ(c_type x)               \
@@ -705,6 +709,7 @@ jl_value_t *pfx##_##typ(c_type x)               \
     return v;                                   \
 }
 BOX_FUNC(float32, float,  jl_box, 2)
+BOX_FUNC(voidpointer, void*,  jl_box, 2) //2 pointers == two words on all platforms
 #ifdef __LP64__
 BOX_FUNC(float64, double, jl_box, 2)
 #else

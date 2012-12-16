@@ -5,7 +5,7 @@
       (_)     | (_) (_)    |   A fresh approach to technical computing
        _ _   _| |_  __ _   |
       | | | | | | |/ _` |  |          http://julialang.org
-      | | |_| | | | (_| |  |       julia-dev@googlegroups.com
+      | | |_| | | | (_| |  |       julia-users@googlegroups.com
      _/ |\__'_|_|_|\__'_|  |           #julia on freenode
     |__/                   |
 
@@ -20,11 +20,18 @@ This is the GitHub repository of Julia source code, including instructions for c
 <a name="Resources"/>
 
 - **Homepage:** <http://julialang.org>
-- **Mailing list:** <http://groups.google.com/group/julia-dev/>
+- **Binaries:** <https://github.com/JuliaLang/julia/downloads>
+- **Packages:** <https://github.com/JuliaLang/METADATA.jl>
+- **Mailing lists:** <http://julialang.org/mailing_lists>
 - **IRC:** <http://webchat.freenode.net/?channels=julia>
 - **Source code:** <https://github.com/JuliaLang/julia>
 - **Git clone URL:** <git://github.com/JuliaLang/julia.git>
 - **Documentation:** <http://julialang.org/manual/>
+
+The mailing list for developer discussion is
+<http://groups.google.com/group/julia-dev/>. All are welcome, but the volume
+of messages is higher, and the discussions tend to be more esoteric. New
+developers may find the notes in [CONTRIBUTING](https://github.com/JuliaLang/julia/blob/master/CONTRIBUTING.md) helpful to start contributing to the julia codebase.
 
 <a name="Currently-Supported-Platforms"/>
 ## Currently Supported Platforms

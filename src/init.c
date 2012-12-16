@@ -58,7 +58,7 @@ void fpe_handler(int arg)
     sigaddset(&sset, SIGFPE);
     sigprocmask(SIG_UNBLOCK, &sset, NULL);
 
-    jl_raise(jl_divbyzero_exception);
+    jl_throw(jl_divbyzero_exception);
 }
 
 void segv_handler(int sig, siginfo_t *info, void *context)
@@ -78,7 +78,7 @@ void segv_handler(int sig, siginfo_t *info, void *context)
         (char*)jl_current_task->stack+jl_current_task->ssize
 #endif
         ) {
-        jl_raise(jl_stackovf_exception);
+        jl_throw(jl_stackovf_exception);
     }
     else {
         signal(SIGSEGV, SIG_DFL);
@@ -107,7 +107,7 @@ void sigint_handler(int sig, siginfo_t *info, void *context)
     }
     else {
         jl_signal_pending = 0;
-        jl_raise(jl_interrupt_exception);
+        jl_throw(jl_interrupt_exception);
     }
 }
 #endif
@@ -207,9 +207,11 @@ void julia_init(char *imageFile)
 
     // the Main module is the one which is always open, and set as the
     // current module for bare (non-module-wrapped) toplevel expressions.
-    // it does import Base.* if Base is available.
+    // it does "using Base" if Base is available.
     if (jl_base_module != NULL)
         jl_module_using(jl_main_module, jl_base_module);
+    // eval() uses Main by default, so Main.eval === Core.eval
+    jl_module_import(jl_main_module, jl_core_module, jl_symbol("eval"));
     jl_current_module = jl_main_module;
 
 #ifndef __WIN32__
@@ -303,8 +305,6 @@ static jl_value_t *basemod(char *name)
     return jl_get_global(jl_base_module, jl_symbol(name));
 }
 
-jl_function_t *jl_method_missing_func=NULL;
-
 // fetch references to things defined in boot.jl
 void jl_get_builtin_hooks(void)
 {
@@ -355,13 +355,11 @@ void jl_get_builtin_hooks(void)
 
 DLLEXPORT void jl_get_system_hooks(void)
 {
-    if (jl_method_missing_func) return; // only do this once
+    if (jl_errorexception_type) return; // only do this once
 
     jl_errorexception_type = (jl_struct_type_t*)basemod("ErrorException");
     jl_typeerror_type = (jl_struct_type_t*)basemod("TypeError");
+    jl_methoderror_type = (jl_struct_type_t*)basemod("MethodError");
     jl_loaderror_type = (jl_struct_type_t*)basemod("LoadError");
-    jl_backtrace_type = (jl_struct_type_t*)basemod("BackTrace");
     jl_weakref_type = (jl_struct_type_t*)basemod("WeakRef");
-
-    jl_method_missing_func = (jl_function_t*)basemod("method_missing");
 }

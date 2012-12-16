@@ -255,7 +255,8 @@ static void raise_exception_unless(Value *cond, Value *exc, jl_codectx_t *ctx)
     BasicBlock *passBB = BasicBlock::Create(getGlobalContext(),"pass");
     builder.CreateCondBr(cond, passBB, failBB);
     builder.SetInsertPoint(failBB);
-    builder.CreateCall(jlraise_func, exc);
+    builder.CreateCall2(jlthrow_line_func, exc,
+                        ConstantInt::get(T_int32, ctx->lineno));
     builder.CreateUnreachable();
     ctx->f->getBasicBlockList().push_back(passBB);
     builder.SetInsertPoint(passBB);
@@ -281,7 +282,8 @@ static void raise_exception_if(Value *cond, GlobalVariable *exc,
 
 static void null_pointer_check(Value *v, jl_codectx_t *ctx)
 {
-    raise_exception_unless(builder.CreateICmpNE(v,V_null), jlundeferr_var, ctx);
+    raise_exception_unless(builder.CreateICmpNE(v,Constant::getNullValue(v->getType())),
+                           jlundeferr_var, ctx);
 }
 
 static Value *boxed(Value *v, jl_value_t *jt=NULL);
@@ -425,6 +427,11 @@ static Value *julia_bool(Value *cond)
 
 static jl_value_t *static_eval(jl_value_t *ex, jl_codectx_t *ctx, bool sparams=true);
 
+static inline jl_module_t *topmod(jl_codectx_t *ctx)
+{
+    return jl_base_relative_to(ctx->module);
+}
+
 static jl_value_t *expr_type(jl_value_t *e, jl_codectx_t *ctx)
 {
     if (jl_is_expr(e))
@@ -442,7 +449,20 @@ static jl_value_t *expr_type(jl_value_t *e, jl_codectx_t *ctx)
         e = v;
         goto type_of_constant;
     }
-    if (jl_is_topnode(e) || jl_is_symbol(e)) {
+    if (jl_is_topnode(e)) {
+        e = jl_fieldref(e,0);
+        jl_binding_t *b = jl_get_binding(topmod(ctx), (jl_sym_t*)e);
+        if (!b || !b->value)
+            return jl_top_type;
+        if (b->constp) {
+            e = b->value;
+            goto type_of_constant;
+        }
+        else {
+            return (jl_value_t*)jl_any_type;
+        }
+    }
+    if (jl_is_symbol(e)) {
         if (jl_is_symbol(e)) {
             if (is_global((jl_sym_t*)e, ctx)) {
                 // look for static parameter
@@ -458,8 +478,6 @@ static jl_value_t *expr_type(jl_value_t *e, jl_codectx_t *ctx)
                 return (jl_value_t*)jl_any_type;
             }
         }
-        if (jl_is_topnode(e))
-            e = jl_fieldref(e,0);
         jl_binding_t *b = jl_get_binding(ctx->module, (jl_sym_t*)e);
         if (!b || !b->value)
             return jl_top_type;
@@ -567,7 +585,8 @@ static Value *emit_array_nd_index(Value *a, size_t nd, jl_value_t **args,
 
     ctx->f->getBasicBlockList().push_back(failBB);
     builder.SetInsertPoint(failBB);
-    builder.CreateCall(jlraise_func, builder.CreateLoad(jlboundserr_var));
+    builder.CreateCall2(jlthrow_line_func, builder.CreateLoad(jlboundserr_var),
+                        ConstantInt::get(T_int32, ctx->lineno));
     builder.CreateUnreachable();
 
     ctx->f->getBasicBlockList().push_back(endBB);
@@ -602,14 +621,6 @@ static Value *allocate_box_dynamic(Value *jlty, int nb, Value *v)
     if (v->getType()->isPointerTy()) {
         v = builder.CreatePtrToInt(v, T_size);
     }
-    if (nb == 8)
-        return builder.CreateCall2(box8_func,  jlty, v);
-    if (nb == 16)
-        return builder.CreateCall2(box16_func, jlty, v);
-    if (nb == 32)
-        return builder.CreateCall2(box32_func, jlty, v);
-    if (nb == 64)
-        return builder.CreateCall2(box64_func, jlty, v);
     size_t sz = sizeof(void*) + (nb+7)/8;
     Value *newv = builder.CreateCall(jlallocobj_func,
                                      ConstantInt::get(T_size, sz));

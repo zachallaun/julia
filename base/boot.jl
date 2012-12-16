@@ -129,18 +129,17 @@ export ..., ANY, ASCIIString, AbstractArray, AbstractKind, Any, Array,
     OverflowError, Ptr, QuoteNode, Real, Signed, StackOverflowError, String,
     Symbol, SymbolNode, Task, Top, TopNode, Tuple, Type, TypeConstructor,
     TypeName, TypeVar, UTF8String, Uint, Uint8, Uint16, Uint32, Uint64, Uint128,
-    Undef, UndefRefError, Union, UnionKind, Unsigned, Void,
+    UndefRefError, Union, UnionKind, Unsigned, Void,
     GetfieldNode,
     # functions
     setfield, applicable, apply, apply_type, arraylen, arrayref, arrayset,
-    arraysize, convert_default, convert_tuple, eval, fieldtype, getfield,
+    arraysize, convert_default, convert_tuple, fieldtype, getfield,
     include, invoke, is, ===, isa, isdefined, method_exists,
     subtype, throw, tuple, tuplelen, tupleref, typeassert, typeof, yieldto,
     # constants
     JULIA_HOME, nothing,
     # intrinsics module
-    Intrinsics,
-    ccall
+    Intrinsics
     #ccall, abs_float, add_float, add_int, and_int, ashr_int,
     #box, bswap_int, checked_fptosi32,
     #checked_fptosi64, checked_fptoui32, checked_fptoui64, checked_sadd,

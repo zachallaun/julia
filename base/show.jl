@@ -8,6 +8,14 @@ show(io, x) = ccall(:jl_show_any, Void, (Any, Any,), io::IOStream, x)
 showcompact(io, x) = show(io, x)
 showcompact(x)     = showcompact(OUTPUT_STREAM::IOStream, x)
 
+macro show(ex)
+    quote
+        print($(sprint(show_unquoted, ex)*"\t= "))
+        show($(esc(ex)))
+        println()
+    end
+end
+
 show(io, s::Symbol) = show_indented(io, s)
 show(io, tn::TypeName) = print(io, tn.name)
 show(io, ::Nothing) = print(io, "nothing")
@@ -121,9 +129,10 @@ function show_indented(io::IO, ex::Expr, indent::Int)
         default_show_quoted(io, ex, indent)
     end
 end
+const paren_quoted_syms = Set{Symbol}(:(:),:(::),:(:=),:(=),:(==),:(===),:(=>))
 function show_indented(io::IO, sym::Symbol, indent::Int)
-    if is(sym,:(:)) || is(sym,:(==)); print(io, ":($sym)")        
-    else                              print(io, ":$sym")        
+    if has(paren_quoted_syms, sym); print(io, ":($sym)")        
+    else                            print(io, ":$sym")        
     end
 end
 function default_show_quoted(io::IO, ex, indent::Int)
@@ -641,13 +650,13 @@ end
 function print_matrix(io,
     X::AbstractMatrix, rows::Integer, cols::Integer,
     pre::String, sep::String, post::String,
-    hdots::String, vdots::String,
+    hdots::String, vdots::String, ddots::String,
     hmod::Integer, vmod::Integer
 )
     cols -= strlen(pre) + strlen(post)
     presp = repeat(" ", strlen(pre))
     postsp = ""
-    hdotssp = repeat(" ", strlen(hdots))
+    @assert strwidth(hdots) == strwidth(ddots)
     ss = strlen(sep)
     m, n = size(X)
     if m <= rows # rows fit
@@ -694,7 +703,7 @@ function print_matrix(io,
             R = reverse(alignment(X,I,n:-1:1,c,c,ss))
             c = cols - sum(map(sum,R)) - (length(R)-1)*ss - strlen(hdots)
             L = alignment(X,I,1:n,c,c,ss)
-            r = (length(R)-n+1) % vmod
+            r = mod((length(R)-n+1),vmod)
             for i in I
                 print(io, i == 1 ? pre : presp)
                 print_matrix_row(io, X,L,i,1:length(L),sep)
@@ -705,7 +714,7 @@ function print_matrix(io,
                 if i == t
                     print(io, i == 1 ? pre : presp)
                     print_matrix_vdots(io, vdots,L,sep,vmod,1)
-                    print(io, hdotssp)
+                    print(io, ddots)
                     print_matrix_vdots(io, vdots,R,sep,vmod,r)
                     println(io, i == m ? post : postsp)
                 end
@@ -714,7 +723,8 @@ function print_matrix(io,
     end
 end
 print_matrix(io, X::AbstractMatrix, rows::Integer, cols::Integer) =
-    print_matrix(io, X, rows, cols, " ", "  ", "", "  :  ", ":", 5, 5)
+    print_matrix(io, X, rows, cols, " ", "  ", "",
+                 "  \u2026  ", "\u22ee", "  \u22f1  ", 5, 5)
 
 print_matrix(io, X::AbstractMatrix) = print_matrix(io, X, tty_rows()-4, tty_cols())
 
@@ -767,7 +777,7 @@ function whos(m::Module, pattern::Regex)
     for s in sort(map(string, names(m)))
         v = symbol(s)
         if isdefined(m,v) && ismatch(pattern, s)
-            println(rpad(v, 30), summary(eval(m,v)))
+            println(rpad(s, 30), summary(eval(m,v)))
         end
     end
 end
@@ -823,8 +833,45 @@ end
 
 function show_vector(io, v, opn, cls)
     X = reshape(v,(1,length(v)))
-    print_matrix(io, X, 1, tty_cols(), opn, ", ", cls, "  ...  ", ":", 5, 5)
+    print_matrix(io, X, 1, tty_cols(), opn, ", ", cls, "  \u2026  ", "\u22ee", "  \u22f1  ", 5, 5)
 end
 
 show(io, v::AbstractVector{Any}) = show_vector(io, v, "{", "}")
 show(io, v::AbstractVector)      = show_vector(io, v, "[", "]")
+
+# printing BitArrays
+
+summary(a::BitArray) =
+    string(dims2string(size(a)), " ", typeof(a).name)
+
+# (following functions not exported - mainly intended for debug)
+
+function _jl_print_bit_chunk(io::IO, c::Uint64, l::Integer)
+    for s = 0 : l - 1
+        d = (c >>> s) & 1
+        print(io, "01"[d + 1])
+        if (s + 1) & 7 == 0
+            print(io, " ")
+        end
+    end
+end
+
+_jl_print_bit_chunk(io::IO, c::Uint64) = _jl_print_bit_chunk(io, c, 64)
+
+_jl_print_bit_chunk(c::Uint64, l::Integer) = _jl_print_bit_chunk(stdout_stream, c, l)
+_jl_print_bit_chunk(c::Uint64) = _jl_print_bit_chunk(stdout_stream, c)
+
+function bitshow(io::IO, B::BitArray)
+    if length(B) == 0
+        return
+    end
+    for i = 1 : length(B.chunks) - 1
+        _jl_print_bit_chunk(io, B.chunks[i])
+        print(io, ": ")
+    end
+    l = (@_mod64 (length(B)-1)) + 1
+    _jl_print_bit_chunk(io, B.chunks[end], l)
+end
+bitshow(B::BitArray) = bitshow(stdout_stream, B)
+
+bitstring(B::BitArray) = sprint(bitshow, B)

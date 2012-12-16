@@ -309,6 +309,7 @@ jl_lambda_info_t *jl_add_static_parameters(jl_lambda_info_t *l, jl_tuple_t *sp)
     nli->module = l->module;
     nli->file = l->file;
     nli->line = l->line;
+    nli->def  = l->def;
     JL_GC_POP();
     return nli;
 }
@@ -732,7 +733,7 @@ static jl_function_t *cache_method(jl_methtable_t *mt, jl_tuple_t *type,
         type = limited;
         if (all_are_subtypes) {
             // avoid Type{Type{...}...}...
-            if (jl_is_type_type(lasttype))
+            if (jl_is_type_type(lasttype) && jl_is_type_type(jl_tparam0(lasttype)))
                 lasttype = (jl_value_t*)jl_type_type;
             temp = (jl_value_t*)jl_tuple1(lasttype);
             jl_tupleset(type, i, jl_apply_type((jl_value_t*)jl_seq_type,
@@ -994,6 +995,8 @@ static int is_va_tuple(jl_tuple_t *t)
     return (jl_tuple_len(t)>0 && jl_is_seq_type(jl_tupleref(t,jl_tuple_len(t)-1)));
 }
 
+static void print_func_loc(ios_t *s, jl_lambda_info_t *li);
+
 /*
   warn about ambiguous method priorities
   
@@ -1013,8 +1016,10 @@ static int is_va_tuple(jl_tuple_t *t)
   so (T,T) is not equivalent to (Any,Any). (TODO)
 */
 static void check_ambiguous(jl_methlist_t *ml, jl_tuple_t *type,
-                            jl_tuple_t *sig, jl_sym_t *fname)
+                            jl_methlist_t *oldmeth, jl_sym_t *fname,
+                            jl_lambda_info_t *linfo)
 {
+    jl_tuple_t *sig = oldmeth->sig;
     size_t tl = jl_tuple_len(type);
     size_t sl = jl_tuple_len(sig);
     // we know !jl_args_morespecific(type, sig)
@@ -1038,8 +1043,10 @@ static void check_ambiguous(jl_methlist_t *ml, jl_tuple_t *type,
         ios_t *s = JL_STDERR;
         ios_printf(s, "Warning: New definition %s", n);
         jl_show(errstream, (jl_value_t*)type);
+        print_func_loc(s, linfo);
         ios_printf(s, " is ambiguous with %s", n);
         jl_show(errstream, (jl_value_t*)sig);
+        print_func_loc(s, oldmeth->func->linfo);
         ios_printf(s, ".\n         Make sure %s", n);
         jl_show(errstream, isect);
         ios_printf(s, " is defined first.\n");
@@ -1073,6 +1080,22 @@ jl_methlist_t *jl_method_list_insert(jl_methlist_t **pml, jl_tuple_t *type,
         if (((l->tvars==jl_null) == (tvars==jl_null)) &&
             sigs_eq((jl_value_t*)type, (jl_value_t*)l->sig)) {
             // method overwritten
+            if (check_amb && l->func->linfo && method->linfo &&
+                (l->func->linfo->module != method->linfo->module) &&
+                // special case: allow adding Array() methods in Base
+                (pml != &((jl_methtable_t*)jl_array_type->env)->defs ||
+                 method->linfo->module != jl_base_module)) {
+                jl_module_t *newmod = method->linfo->module;
+                jl_value_t *errstream = jl_stderr_obj();
+                ios_t *s = JL_STDERR;
+                ios_printf(s, "Warning: Method definition %s", method->linfo->name->name);
+                jl_show(errstream, (jl_value_t*)type);
+                ios_printf(s, " in module %s", l->func->linfo->module->name->name);
+                print_func_loc(s, l->func->linfo);
+                ios_printf(s, " overwritten in module %s", newmod->name->name);
+                print_func_loc(s, method->linfo);
+                ios_printf(s, ".\n");
+            }
             JL_SIGATOMIC_BEGIN();
             l->sig = type;
             l->tvars = tvars;
@@ -1092,9 +1115,9 @@ jl_methlist_t *jl_method_list_insert(jl_methlist_t **pml, jl_tuple_t *type,
         if (jl_args_morespecific((jl_value_t*)type, (jl_value_t*)l->sig))
             break;
         if (check_amb) {
-            check_ambiguous(*pml, (jl_tuple_t*)type, (jl_tuple_t*)l->sig,
+            check_ambiguous(*pml, (jl_tuple_t*)type, l,
                             method->linfo ? method->linfo->name :
-                            anonymous_sym);
+                            anonymous_sym, method->linfo);
         }
         pl = &l->next;
         l = l->next;
@@ -1194,12 +1217,12 @@ jl_methlist_t *jl_method_table_insert(jl_methtable_t *mt, jl_tuple_t *type,
 
 jl_value_t *jl_no_method_error(jl_function_t *f, jl_value_t **args, size_t na)
 {
-    jl_value_t **a = alloca(sizeof(jl_value_t*)*(na+1));
-    a[0] = (jl_value_t*)f;
-    int i;
-    for(i=0; i < na; i++)
-        a[i+1] = args[i];
-    return jl_apply(jl_method_missing_func, a, na+1);
+    jl_value_t *argtup = jl_f_tuple(NULL, args, na);
+    JL_GC_PUSH(&argtup);
+    jl_value_t *fargs[2] = { (jl_value_t*)f, argtup };
+    jl_throw(jl_apply((jl_function_t*)jl_methoderror_type, fargs, 2));
+    // not reached
+    return jl_nothing;
 }
 
 static jl_tuple_t *arg_type_tuple(jl_value_t **args, size_t nargs)
@@ -1433,6 +1456,15 @@ jl_value_t *jl_gf_invoke(jl_function_t *gf, jl_tuple_t *types,
     return jl_apply(mfunc, args, nargs);
 }
 
+static void print_func_loc(ios_t *s, jl_lambda_info_t *li)
+{
+    long lno = li->line;
+    if (lno > 0) {
+        char *fname = ((jl_sym_t*)li->file)->name;
+        JL_PRINTF(s, " at %s:%d", fname, lno);
+    }
+}
+
 static void print_methlist(jl_value_t *outstr, char *name, jl_methlist_t *ml)
 {
     ios_t *s = (ios_t*)jl_iostr_data(outstr);
@@ -1455,11 +1487,7 @@ static void print_methlist(jl_value_t *outstr, char *name, jl_methlist_t *ml)
         else {
             jl_lambda_info_t *li = ml->func->linfo;
             assert(li);
-            long lno = li->line;
-            if (lno > 0) {
-                char *fname = ((jl_sym_t*)li->file)->name;
-                JL_PRINTF(s, " at %s:%d", fname, lno);
-            }
+            print_func_loc(s, li);
         }
         if (ml->next != JL_NULL)
             JL_PRINTF(s, "\n");
@@ -1489,6 +1517,11 @@ jl_function_t *jl_new_generic_function(jl_sym_t *name)
     jl_initialize_generic_function(f, name);
     JL_GC_POP();
     return f;
+}
+
+DLLEXPORT jl_function_t *jl_new_gf_internal(jl_value_t *env)
+{
+    return jl_new_closure(jl_apply_generic, env, NULL);
 }
 
 void jl_add_method(jl_function_t *gf, jl_tuple_t *types, jl_function_t *meth,

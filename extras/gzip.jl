@@ -1,6 +1,6 @@
 ## gzip file io ##
+
 module GZip
-using Base
 
 import Base.show, Base.fd, Base.close, Base.flush, Base.truncate, Base.seek
 import Base.skip, Base.position, Base.eof, Base.read, Base.readall
@@ -63,9 +63,14 @@ export
   Z_HUFFMAN_ONLY,
   Z_RLE,
   Z_FIXED,
-  Z_DEFAULT_STRATEGY
+  Z_DEFAULT_STRATEGY,
 
-load("zlib_h")
+# Default buffer sizes
+  Z_DEFAULT_BUFSIZE,
+  Z_BIG_BUFSIZE
+
+#load("zlib_h")
+include("$JULIA_HOME/../share/julia/extras/zlib_h.jl")
 
 # Expected line length for strings
 const GZ_LINE_BUFSIZE = 256
@@ -111,6 +116,7 @@ show(io, s::GZipStream) = print(io, "GZipStream(", s.name, ")")
 
 macro test_eof_gzerr(s, cc, val)
     quote
+        if $(esc(s))._closed throw(EOFError()) end
         ret = $(esc(cc))
         if ret == $(esc(val))
             if eof($(esc(s)))  throw(EOFError())  else  throw(GZError($(esc(s))))  end
@@ -121,6 +127,7 @@ end
 
 macro test_eof_gzerr2(s, cc, val)
     quote
+        if $(esc(s))._closed throw(EOFError()) end
         ret = $(esc(cc))
         if ret == $(esc(val)) && !eof($(esc(s))) throw(GZError($(esc(s)))) end
         ret
@@ -129,6 +136,7 @@ end
 
 macro test_gzerror(s, cc, val)
     quote
+        if $(esc(s))._closed throw(EOFError()) end
         ret = $(esc(cc))
         if ret == $(esc(val)) throw(ret, GZError($(esc(s)))) end
         ret
@@ -137,6 +145,7 @@ end
 
 macro test_gzerror0(s, cc)
     quote
+        if $(esc(s))._closed throw(EOFError()) end
         ret = $(esc(cc))
         if ret <= 0 throw(GZError(ret, $(esc(s)))) end
         ret
@@ -271,16 +280,18 @@ gzdopen(s::IOStream, args...) = gzdopen(fd(s), args...)
 fd(s::GZipStream) = error("fd is not supported for GZipStreams")
 
 function close(s::GZipStream)
+
+    # The garbage collector needs to be temporarily disabled because of a possible
+    # race condition if it runs between testing and setting s._closed
+
+    gc_disable()
     if s._closed
+        gc_enable()
         return Z_STREAM_ERROR
     end
-
-    # s._closed has to be set here
-    # Technically, there's still a race condition: it's still possible that
-    # the garbage collector runs between the test above and setting s._closed below
-    # TODO: is test_and_set or atomic available?
-
     s._closed = true
+    gc_enable()
+
     s.name *= " (closed)"
 
     ret = (@test_z_ok ccall(dlsym(_zlib, :gzclose), Int32, (Ptr{Void},), s.gz_file))

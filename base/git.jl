@@ -3,8 +3,6 @@ module Git
 # some utility functions for working with git repos
 #
 
-using Base
-
 dir() = readchomp(`git rev-parse --git-dir`)
 modules(args::Cmd) = readchomp(`git config -f .gitmodules $args`)
 different(verA::String, verB::String, path::String) =
@@ -19,6 +17,7 @@ unstaged(paths) = !success(`git diff --quiet -- $paths`)
 
 attached() = success(`git symbolic-ref -q HEAD` > "/dev/null")
 branch() = readchomp(`git rev-parse --symbolic-full-name --abbrev-ref HEAD`)
+head() = readchomp(`git rev-parse HEAD`)
 
 function each_tagged_version()
     git_dir = abs_path(dir())
@@ -32,9 +31,9 @@ end
 each_tagged_version(dir::String) = cd(each_tagged_version,dir)
 
 function each_submodule(f::Function, recursive::Bool, dir::ByteString)
-    cmd = `git submodule foreach --quiet 'echo "$name\t$path\t$sha1"'`
+    cmd = `git submodule foreach --quiet 'echo "$name $path $sha1"'`
     for line in each_line(cmd)
-        name, path, sha1 = match(r"^(.*)\t(.*)\t([0-9a-f]{40})$", line).captures
+        name, path, sha1 = match(r"^(.*) (.*) ([0-9a-f]{40})$", line).captures
         cd(dir) do
             f(name, path, sha1)
         end
@@ -84,8 +83,10 @@ function write_config(file::String, cfg::Dict)
             run(`git config -f $tmp $key $val`)
         end
     end
-    open(file,"w") do io
-        print(io,readall(tmp))
+    if isfile(tmp)
+        open(file,"w") do io
+            print(io,readall(tmp))
+        end
     end
 end
 
@@ -129,6 +130,21 @@ function merge_configs(Bc::Dict, Lc::Dict, Rc::Dict)
         end
     end
     return cfg, conflicts, deleted
+end
+
+const GITHUB_REGEX = r"^(?:git@|git://|https://(?:[\w\.\+\-]+@)?)github.com[:/](.*)$"i
+
+# setup a repo's push URL intelligently
+
+function autoconfig_pushurl()
+    url = readchomp(`git config remote.origin.url`)
+    m = match(GITHUB_REGEX,url)
+    if m != nothing
+        pushurl = "git@github.com:$(m.captures[1])"
+        if pushurl != url
+            run(`git config remote.origin.pushurl $pushurl`)
+        end
+    end
 end
 
 end # module

@@ -1,4 +1,7 @@
-module Base
+baremodule Base
+
+eval(x) = Core.eval(Base,x)
+eval(m,x) = Core.eval(m,x)
 
 include("export.jl")
 
@@ -53,9 +56,6 @@ include("promotion.jl")
 include("operators.jl")
 include("pointer.jl")
 
-_jl_lib = ccall(:jl_load_dynamic_library,Ptr{Void},(Ptr{None},),C_NULL)
-libopenlibm = dlopen("libopenlibm")
-
 include("float.jl")
 include("reduce.jl")
 include("complex.jl")
@@ -65,15 +65,18 @@ include("rational.jl")
 include("abstractarray.jl")
 include("subarray.jl")
 include("array.jl")
+include("bitarray.jl")
 include("intset.jl")
 include("dict.jl")
 include("set.jl")
 
 # compiler
+import Core.Undef  # used internally by compiler
 include("inference.jl")
 
 # I/O, strings & printing
 include("io.jl")
+include("iostring.jl")
 include("char.jl")
 include("ascii.jl")
 include("utf8.jl")
@@ -93,6 +96,7 @@ include("serialize.jl")
 include("multi.jl")
 
 # system & environment
+include("build_h.jl")
 include("osutils.jl")
 include("libc.jl")
 include("env.jl")
@@ -120,7 +124,8 @@ include("sort.jl")
 include("combinatorics.jl")
 
 # distributed arrays and memory-mapped arrays
-include("darray.jl")
+#include("darray.jl")
+include("darray2.jl")
 include("mmap.jl")
 
 # utilities - version, timing, help, edit
@@ -129,16 +134,15 @@ include("util.jl")
 include("datafmt.jl")
 include("deepcopy.jl")
 
-## Load optional external libraries
-
-include("build_h.jl")
-
 # linear algebra
 include("blas.jl")
 include("lapack.jl")
 include("matmul.jl")
+include("sparse.jl")
 include("linalg.jl")
 include("linalg_dense.jl")
+include("linalg_bitarray.jl")
+include("linalg_sparse.jl")
 
 # signal processing
 include("fftw.jl")
@@ -235,7 +239,7 @@ compile_hint(_jl_eval_user_input, (Expr, Bool))
 compile_hint(print, (Float64,))
 compile_hint(a2t, (Array{Any,1},))
 compile_hint(flush, (IOStream,))
-compile_hint(ref, (Type{String}, ASCIIString, ASCIIString, ASCIIString, ASCIIString, ASCIIString))
+compile_hint(ref, (Type{ByteString}, ASCIIString, ASCIIString, ASCIIString, ASCIIString, ASCIIString, ASCIIString))
 compile_hint(int, (Int,))
 compile_hint(uint, (Uint,))
 compile_hint(_atexit, ())
@@ -261,8 +265,23 @@ compile_hint(abs_path, (ASCIIString,))
 compile_hint(isrooted, (ASCIIString,))
 compile_hint(split, (ASCIIString,))
 compile_hint(split, (ASCIIString, ASCIIString, Int, Bool))
+compile_hint(split, (ASCIIString, Regex, Int, Bool))
 compile_hint(print_joined, (IOStream, Array{String,1}, ASCIIString))
 compile_hint(begins_with, (ASCIIString, ASCIIString))
+compile_hint(resolve_globals, (Symbol, Module, Module, Vector{Any}, Vector{Any}))
+compile_hint(resolve_globals, (SymbolNode, Module, Module, Vector{Any}, Vector{Any}))
+compile_hint(BitArray, (Int,))
+compile_hint(ref, (BitArray{1}, Int,))
+compile_hint(assign, (BitArray{1}, Bool, Int,))
+compile_hint(fill!, (BitArray{1}, Bool))
+compile_hint(nnz, (BitArray{1},))
+compile_hint(_jl_get_chunks_id, (Int,))
+compile_hint(occurs_more, (Uint8, Function, Int))
+compile_hint(abstract_eval_arg, (Uint8, ObjectIdDict, StaticVarInfo))
+compile_hint(occurs_outside_tupleref, (Function, Symbol, StaticVarInfo, Int))
+compile_hint(search, (ASCIIString, Regex, Int))
+compile_hint(astcopy, (Uint8,))
+compile_hint(assign, (Vector{Uint8}, Uint8, Int))
 
 # invoke type inference, running the existing inference code on the new
 # inference code to cache an optimized version of it.
@@ -272,10 +291,12 @@ begin
     typeinf_ext(minf[1][3], atypes, (), minf[1][3])
 end
 
-end # module Base
+end # baremodule Base
 
 using Base
 
+let JL_PRIVATE_LIBDIR = getenv("JL_PRIVATE_LIBDIR")
 # create system image file
-ccall(:jl_save_system_image, Void, (Ptr{Uint8},Ptr{Uint8}),
-      "$JULIA_HOME/../lib/julia/sys.ji", "start_image.jl")
+ccall(:jl_save_system_image, Void, (Ptr{Uint8},),
+      "$JULIA_HOME/../$JL_PRIVATE_LIBDIR/sys.ji")
+end
