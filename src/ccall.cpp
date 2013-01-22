@@ -166,7 +166,7 @@ extern "C" void *jl_value_to_pointer(jl_value_t *jt, jl_value_t *v, int argn,
     }
     else {
         if (jl_is_cpointer_type(jvt) && jl_tparam0(jvt) == jt) {
-            return (void*)jl_unbox_long(v);
+            return (void*)jl_unbox_voidpointer(v);
         }
     }
     if (((jl_value_t*)jl_uint8_type == jt ||

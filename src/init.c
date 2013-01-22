@@ -164,7 +164,13 @@ BOOL WINAPI sigint_handler(DWORD wsig) //This needs winapi types to guarantee __
             printf("error: GetThreadContext failed\n");
             return 0;
         }
-        ctxThread.Eip = (DWORD)&win_raise_sigint; //on win64, use .Rip = (DWORD64)...
+#ifdef _WIN64
+        ctxThread.Rip = (DWORD64)&win_raise_sigint;
+#elif _WIN32
+        ctxThread.Eip = (DWORD)&win_raise_sigint;
+#else
+#error WIN16 not supported :P
+#endif
         if (!SetThreadContext(hMainThread,&ctxThread)) {
             printf("error: SetThreadContext failed\n");
             //error

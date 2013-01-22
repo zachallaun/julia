@@ -39,7 +39,7 @@ static GlobalVariable *stringConst(const std::string &txt)
 
 static Value *literal_pointer_val(void *p, Type *t)
 {
-#ifdef __LP64__
+#if defined(__LP64__) || defined(_WIN64)
     return ConstantExpr::getIntToPtr(ConstantInt::get(T_int64, (uint64_t)p),
                                      t);
 #else

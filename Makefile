@@ -40,7 +40,7 @@ $(BUILD)/$(JL_PRIVATE_LIBDIR)/sys.ji: VERSION base/*.jl base/pkg/*.jl $(BUILD)/s
 run-julia-debug run-julia-release: run-julia-%:
 	$(MAKE) $(QUIET_MAKE) run-julia JULIA_EXECUTABLE="$(JULIA_EXECUTABLE_$*)"
 run-julia:
-	$(JULIA_EXECUTABLE)
+	winedbg --gdb $(JULIA_EXECUTABLE)
 
 # public libraries, that are installed in $(PREFIX)/lib
 JL_LIBS = julia-release julia-debug

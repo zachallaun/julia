@@ -707,8 +707,8 @@ static void cvalue_print(ios_t *f, value_t v)
         void *fptr = *(void**)data;
         label = (value_t)ptrhash_get(&reverse_dlsym_lookup_table, cv);
         if (label == (value_t)HT_NOTFOUND) {
-            HPOS += ios_printf(f, "#<builtin @0x%08lx>",
-                               (unsigned long)(builtin_t)fptr);
+            HPOS += ios_printf(f, "#<builtin @0x%08zx>",
+                               (size_t)(builtin_t)fptr);
         }
         else {
             if (print_princ) {
