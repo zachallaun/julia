@@ -93,17 +93,17 @@ typedef unsigned char  byte_t;   /* 1 byte */
 #ifdef __LP64__
 #define TOP_BIT 0x8000000000000000
 #define NBITS 64
-typedef unsigned long uint_t;  // preferred int type on platform
-typedef long int_t;
+typedef uint64_t uint_t;  // preferred int type on platform
+typedef int64_t int_t;
 #else
 #define TOP_BIT 0x80000000
 #define NBITS 32
-typedef unsigned long uint_t;
-typedef long int_t;
+typedef uint32_t uint_t;
+typedef int32_t int_t;
 #endif
-typedef ssize_t ptrint_t; // pointer-size int
+typedef ptrdiff_t ptrint_t; // pointer-size int
 typedef size_t uptrint_t;
-typedef ssize_t offset_t;
+typedef ptrdiff_t offset_t;
 typedef size_t index_t;
 
 typedef uint8_t  u_int8_t;
@@ -162,12 +162,12 @@ typedef enum { T_INT8, T_UINT8, T_INT16, T_UINT16, T_INT32, T_UINT32,
 
 #define N_NUMTYPES ((int)T_DOUBLE+1)
 
-#ifdef __LP64__
-# define T_LONG T_INT64
-# define T_ULONG T_UINT64
+#ifdef _P64
+# define T_PTRDIFF T_INT64
+# define T_SIZE T_UINT64
 #else
-# define T_LONG T_INT32
-# define T_ULONG T_UINT32
+# define T_PTRDIFF T_INT32
+# define T_SIZE T_UINT32
 #endif
 
 #endif
