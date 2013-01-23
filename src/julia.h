@@ -1148,7 +1148,7 @@ DLLEXPORT void jl_enter_handler(jl_handler_t *eh);
 DLLEXPORT void jl_pop_handler(int n);
 
 #if defined(__WIN32__)
-#define jl_setjmp_f    _setjmp
+#define jl_setjmp_f    sigsetjmp
 #define jl_setjmp(a,b) setjmp(a)
 #define jl_longjmp(a,b) longjmp(a,b)
 #else
