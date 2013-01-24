@@ -2406,13 +2406,22 @@ static Function *emit_function(jl_lambda_info_t *lam)
 }
 
 #ifdef __WIN32__
+#if 1
+int __attribute__ ((__nothrow__,__returns_twice__))
+  sigsetjmp(jmp_buf _Buf, int b) {
+	//memset(_Buf,0,sizeof(jmp_buf));
+    return __builtin_setjmp(_Buf);
+}
+#else
 static jmp_buf jbuf;
 int __attribute__ ((__nothrow__,__returns_twice__))
-sigsetjmp(jmp_buf _Buf, int b) {
+  sigsetjmp(jmp_buf _Buf, int b) {
+	memset(&jbuf,0,sizeof(jmp_buf));
     int r = __builtin_setjmp(jbuf);
-    if (r == 0) memcpy(&_Buf, &jbuf, sizeof(jbuf));
-    return r;
+	memcpy(_Buf, &jbuf, sizeof(jmp_buf));
+	return r;
 }
+#endif
 #endif
 
 // --- initialization ---

@@ -1149,8 +1149,10 @@ DLLEXPORT void jl_enter_handler(jl_handler_t *eh);
 DLLEXPORT void jl_pop_handler(int n);
 
 #if defined(__WIN32__)
-#define jl_setjmp_f    sigsetjmp
-#define jl_setjmp(a,b) __builtin_setjmp(a)
+int __attribute__ ((__nothrow__,__returns_twice__))
+  sigsetjmp(jmp_buf _Buf, int b);
+#define jl_setjmp_f     sigsetjmp
+#define jl_setjmp(a,b)  __builtin_setjmp(a)
 #define jl_longjmp(a,b) __builtin_longjmp(a,b)
 #else
 // determine actual entry point name
