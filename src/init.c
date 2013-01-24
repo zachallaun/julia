@@ -4,7 +4,6 @@
 */
 #include <stdlib.h>
 #include <string.h>
-#include <setjmp.h>
 #include <assert.h>
 #if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/types.h>

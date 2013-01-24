@@ -33,7 +33,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Config/llvm-config.h"
-#include <setjmp.h>
 #ifdef __WIN32__
 #include <malloc.h>
 #endif
@@ -2405,13 +2404,17 @@ static Function *emit_function(jl_lambda_info_t *lam)
     JL_GC_POP();
     return f;
 }
+
+#ifdef __WIN32__
 static jmp_buf jbuf;
 int __attribute__ ((__nothrow__,__returns_twice__))
 sigsetjmp(jmp_buf _Buf, int b) {
-    int r = setjmp(jbuf);
-    if (r == 0) memcpy(_Buf, jbuf, sizeof(jbuf));
+    int r = __builtin_setjmp(jbuf);
+    if (r == 0) memcpy(&_Buf, &jbuf, sizeof(jbuf));
     return r;
 }
+#endif
+
 // --- initialization ---
 
 static GlobalVariable *global_to_llvm(const std::string &cname, void *addr)

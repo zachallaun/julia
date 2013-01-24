@@ -1,3 +1,4 @@
+
 #ifndef JULIA_H
 #define JULIA_H
 
@@ -1149,8 +1150,8 @@ DLLEXPORT void jl_pop_handler(int n);
 
 #if defined(__WIN32__)
 #define jl_setjmp_f    sigsetjmp
-#define jl_setjmp(a,b) setjmp(a)
-#define jl_longjmp(a,b) longjmp(a,b)
+#define jl_setjmp(a,b) __builtin_setjmp(a)
+#define jl_longjmp(a,b) __builtin_longjmp(a,b)
 #else
 // determine actual entry point name
 #if defined(sigsetjmp)
