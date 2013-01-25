@@ -1,6 +1,7 @@
 {
   global:
-    sigsetjmp;
+    jl_setjmp_f;
+    jl_longjmp;
     asprintf;
     bitvector_any1;
     bitvector_count;

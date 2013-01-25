@@ -15,12 +15,7 @@
 #include "htable.h"
 #include "arraylist.h"
 
-#include <setjmp.h>
-#if defined(__FreeBSD__)
-#  define jl_jmp_buf sigjmp_buf
-#else
-#  define jl_jmp_buf jmp_buf
-#endif
+#define jl_jmp_buf jmp_buf //todo: fix this (should be 5 pointers)
 
 #if __GNUC__
 #define NORETURN __attribute__ ((noreturn))
@@ -1147,21 +1142,8 @@ static inline void jl_eh_restore_state(jl_handler_t *eh)
 DLLEXPORT void jl_enter_handler(jl_handler_t *eh);
 DLLEXPORT void jl_pop_handler(int n);
 
-#if defined(__WIN32__)
-int __attribute__ ((__nothrow__,__returns_twice__))
-  jl_setjmp_f(void** _Buf, int b);
-#define jl_setjmp(a,b)  __builtin_setjmp((void**)&(a))
-#define jl_longjmp(a,b) __builtin_longjmp((void**)&(a),b)
-#else
-// determine actual entry point name
-#if defined(sigsetjmp)
-#define jl_setjmp_f    __sigsetjmp
-#else
-#define jl_setjmp_f    sigsetjmp
-#endif
-#define jl_setjmp(a,b) sigsetjmp(a,b)
-#define jl_longjmp(a,b) siglongjmp(a,b)
-#endif
+#define jl_setjmp(a,b)  __builtin_setjmp(a)
+#define jl_longjmp(a,b) __builtin_longjmp(a,1)
 
 #define JL_TRY                                                    \
     int i__tr, i__ca; jl_handler_t __eh;                          \
