@@ -715,7 +715,6 @@ void *jl_unbox_voidpointer(jl_value_t *v);
 #define jl_unbox_long(x) jl_unbox_int32(x)
 #define jl_is_long(x)    jl_is_int32(x)
 #define jl_long_type     jl_int32_type
-#error no 32 bit for you
 #endif
 
 // structs
@@ -1053,7 +1052,7 @@ DLLEXPORT void restore_signals(void);
 
 // info describing an exception handler
 typedef struct _jl_handler_t {
-    jl_jmp_buf eh_ctx;
+    jl_jmp_buf  eh_ctx;
 #ifdef JL_GC_MARKSWEEP
     jl_gcframe_t *gcstack;
 #endif
@@ -1150,10 +1149,9 @@ DLLEXPORT void jl_pop_handler(int n);
 
 #if defined(__WIN32__)
 int __attribute__ ((__nothrow__,__returns_twice__))
-  sigsetjmp(jmp_buf _Buf, int b);
-#define jl_setjmp_f     sigsetjmp
-#define jl_setjmp(a,b)  __builtin_setjmp(a)
-#define jl_longjmp(a,b) __builtin_longjmp(a,b)
+  jl_setjmp_f(void** _Buf, int b);
+#define jl_setjmp(a,b)  __builtin_setjmp((void**)&(a))
+#define jl_longjmp(a,b) __builtin_longjmp((void**)&(a),b)
 #else
 // determine actual entry point name
 #if defined(sigsetjmp)

@@ -51,6 +51,14 @@ using namespace llvm;
 extern "C" {
 #include "julia.h"
 #include "builtin_proto.h"
+void * __stack_chk_guard = NULL;
+DLLEXPORT void __attribute__((noreturn)) __stack_chk_fail()
+{ 
+    /* put your panic function or similar in here */
+    assert(0 && "stack corruption detected");
+    abort();
+}
+
 }
 
 #define CONDITION_REQUIRES_BOOL
@@ -175,27 +183,27 @@ static Function *to_function(jl_lambda_info_t *li)
     Function *f = NULL;
     JL_TRY {
         f = emit_function(li);
-    }
-    JL_CATCH {
-        li->functionObject = NULL;
-        li->cFunctionObject = NULL;
-        nested_compile = last_n_c;
-        if (old != NULL) {
-            builder.SetInsertPoint(old);
-            builder.SetCurrentDebugLocation(olddl);
-        }
-        JL_SIGATOMIC_END();
-        if (jl_typeis(jl_exception_in_transit, jl_errorexception_type)) {
-            char *str = jl_string_data(jl_fieldref(jl_exception_in_transit,0));
-            char buf[1024];
-            int nc = snprintf(buf, sizeof(buf), "error compiling %s: %s",
-                              li->name->name, str);
-            jl_value_t *msg = jl_pchar_to_string(buf, nc);
-            JL_GC_PUSH(&msg);
-            jl_throw(jl_new_struct(jl_errorexception_type, msg));
-        }
-        jl_rethrow();
-    }
+	}
+	JL_CATCH {
+	   li->functionObject = NULL;
+	   li->cFunctionObject = NULL;
+	   nested_compile = last_n_c;
+	   if (old != NULL) {
+		   builder.SetInsertPoint(old);
+		   builder.SetCurrentDebugLocation(olddl);
+	   }
+	   JL_SIGATOMIC_END();
+	   if (jl_typeis(jl_exception_in_transit, jl_errorexception_type)) {
+		   char *str = jl_string_data(jl_fieldref(jl_exception_in_transit,0));
+		   char buf[1024];
+		   int nc = snprintf(buf, sizeof(buf), "error compiling %s: %s",
+							 li->name->name, str);
+		   jl_value_t *msg = jl_pchar_to_string(buf, nc);
+		   JL_GC_PUSH(&msg);
+		   jl_throw(jl_new_struct(jl_errorexception_type, msg));
+	   }
+	   jl_rethrow();
+	}
     assert(f != NULL);
     nested_compile = last_n_c;
     //f->dump();
@@ -1957,6 +1965,12 @@ static Function *emit_function(jl_lambda_info_t *lam)
             lam->functionObject = (void*)f;
         }
     }
+    AttrBuilder *attr = new AttrBuilder();
+    attr->addStackAlignmentAttr(16);
+    attr->addAlignmentAttr(16);
+    f->addAttribute(~0U, Attributes::get(f->getContext(), *attr));
+    f->addFnAttr(Attributes::StackProtectReq);
+    
     //TODO: this seems to cause problems, but should be made to work eventually
     //if (jlrettype == (jl_value_t*)jl_bottom_type)
     //    f->setDoesNotReturn();
@@ -2406,22 +2420,24 @@ static Function *emit_function(jl_lambda_info_t *lam)
 }
 
 #ifdef __WIN32__
+extern "C" {
 #if 1
 int __attribute__ ((__nothrow__,__returns_twice__))
-  sigsetjmp(jmp_buf _Buf, int b) {
+  jl_setjmp_f(void** _Buf, int b) {
 	//memset(_Buf,0,sizeof(jmp_buf));
     return __builtin_setjmp(_Buf);
 }
 #else
 static jmp_buf jbuf;
 int __attribute__ ((__nothrow__,__returns_twice__))
-  sigsetjmp(jmp_buf _Buf, int b) {
+  jl_setjmp_f(void** _Buf, int b) {
 	memset(&jbuf,0,sizeof(jmp_buf));
     int r = __builtin_setjmp(jbuf);
 	memcpy(_Buf, &jbuf, sizeof(jmp_buf));
 	return r;
 }
 #endif
+}
 #endif
 
 // --- initialization ---
@@ -2441,6 +2457,10 @@ static Function *jlfunc_to_llvm(const std::string &cname, void *addr)
     Function *f =
         Function::Create(jl_func_sig, Function::ExternalLinkage,
                          cname, jl_Module);
+    AttrBuilder *attr = new AttrBuilder();
+    attr->addStackAlignmentAttr(16);
+    attr->addAlignmentAttr(16);
+    f->addAttribute(~0U, Attributes::get(f->getContext(), *attr));
     jl_ExecutionEngine->addGlobalMapping(f, addr);
     return f;
 }
@@ -2503,6 +2523,15 @@ static void init_julia_llvm_env(Module *m)
                            NULL, "jl_pgcstack");
     jl_ExecutionEngine->addGlobalMapping(jlpgcstack_var, (void*)&jl_pgcstack);
 #endif
+    
+    global_to_llvm("__stack_chk_guard", (void*)&__stack_chk_guard);
+    Function *jl__stack_chk_fail =
+        Function::Create(FunctionType::get(T_void, false),
+                         Function::ExternalLinkage,
+                         "__stack_chk_fail", jl_Module);
+    jl__stack_chk_fail->setDoesNotReturn();
+    jl_ExecutionEngine->addGlobalMapping(jl__stack_chk_fail, (void*)&__stack_chk_fail);
+
 
     jltrue_var = global_to_llvm("jl_true", (void*)&jl_true);
     jlfalse_var = global_to_llvm("jl_false", (void*)&jl_false);

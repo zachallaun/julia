@@ -262,6 +262,7 @@ int true_main(int argc, char *argv[])
     if (start_client) {
         jl_apply(start_client, NULL, 0);
         //rl_cleanup_after_signal();
+		fprintf(stderr, "start_client exit\n");
         return 0;
     }
 
@@ -287,6 +288,7 @@ int true_main(int argc, char *argv[])
         goto again;
     }
     uv_tty_reset_mode();
+	fprintf(stderr, "true_main exit\n");
     return iserr;
 }
 
