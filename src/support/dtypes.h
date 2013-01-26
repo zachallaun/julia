@@ -90,7 +90,7 @@
 typedef int bool_t;
 typedef unsigned char  byte_t;   /* 1 byte */
 
-#ifdef __LP64__
+#ifdef _P64
 #define TOP_BIT 0x8000000000000000
 #define NBITS 64
 typedef uint64_t uint_t;  // preferred int type on platform

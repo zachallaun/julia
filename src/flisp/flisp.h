@@ -10,6 +10,7 @@ typedef uptrint_t value_t;
 typedef int_t fixnum_t;
 #if NBITS==64
 #define T_FIXNUM T_INT64
+#define labs llabs
 #else
 #define T_FIXNUM T_INT32
 #endif
