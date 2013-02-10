@@ -116,14 +116,7 @@ end
 <(x::BigFloat, y::BigFloat) = cmp(x,y) < 0
 >(x::BigFloat, y::BigFloat) = cmp(x,y) > 0
 
-function string(x::BigFloat)
-    lng = 128
-    for i = 1:2
-        z = Array(Uint8, lng)
-        lng = ccall((:__gmp_snprintf,:libgmp), Int32, (Ptr{Uint8}, Int32, Ptr{Uint8}, Ptr{Void}), z, lng, "%.Fe", x.mpf)
-        if lng < 128 || i == 2; return bytestring(convert(Ptr{Uint8}, z[1:lng])); end
-    end
-end
+string(x::BigFloat) = gmp_printf("%.Ff", x.mpf)
 
 show(io::IO, b::BigFloat) = print(io, string(b))
 showcompact(io::IO, b::BigFloat) = print(io, string(b))

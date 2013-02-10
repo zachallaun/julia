@@ -173,12 +173,7 @@ binomial(n::BigInt, k::Integer) = k<0 ? throw(DomainError()) : binomial(n, uint(
 <(x::BigInt, y::BigInt) = cmp(x,y) < 0
 >(x::BigInt, y::BigInt) = cmp(x,y) > 0
 
-function string(x::BigInt)
-    lng = ndigits(x) + 2
-    z = Array(Uint8, lng)
-    lng = ccall((:__gmp_snprintf,:libgmp), Int32, (Ptr{Uint8}, Int32, Ptr{Uint8}, Ptr{Void}), z, lng, "%Zd", x.mpz)
-    return bytestring(convert(Ptr{Uint8}, z[1:lng]))
-end
+string(x::BigInt) = gmp_printf("%Zd", x.mpz)
 
 function show(io::IO, x::BigInt)
     print(io, string(x))
