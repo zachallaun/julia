@@ -20,7 +20,7 @@ Getting Around
 
    Edit the definition of a function, optionally specifying a tuple of types to indicate which method to edit. When the editor exits, the source file containing the definition is reloaded.
 
-.. function:: load("file")
+.. function:: require("file")
 
    Evaluate the contents of a source file
 
@@ -125,6 +125,10 @@ Types
 .. function:: realmax(type)
 
    The highest finite value representable by the given floating-point type
+
+.. function:: maxintfloat(type)
+
+   The largest integer losslessly representable by the given floating-point type
 
 .. function:: sizeof(type)
 
@@ -268,19 +272,11 @@ Iterable Collections
 
    Test whether all elements of a boolean collection are true
 
-.. function:: count(itr)
-
-   Count the number of boolean elements in ``itr`` which are ``true`` rather than ``false``.
-
-.. function:: countp(p, itr)
-
-   Count the number of elements in ``itr`` for which predicate ``p`` is true.
-
-.. function:: anyp(p, itr)
+.. function:: any(p, itr)
 
    Determine whether any element of ``itr`` satisfies the given predicate.
 
-.. function:: allp(p, itr)
+.. function:: all(p, itr)
 
    Determine whether all elements of ``itr`` satisfy the given predicate.
 
@@ -329,11 +325,11 @@ As with arrays, ``Dicts`` may be created with comprehensions. For example,
 
    Return the value stored for the given key, or the given default value if no mapping for the key is present.
 
-.. function:: del(collection, key)
+.. function:: delete!(collection, key)
 
    Delete the mapping for the given key in a collection.
 
-.. function:: del_all(collection)
+.. function:: empty!(collection)
 
    Delete all keys from a collection.
 
@@ -345,9 +341,9 @@ As with arrays, ``Dicts`` may be created with comprehensions. For example,
 
    Return an array of all values in a collection.
 
-.. function:: pairs(collection)
+.. function:: collect(collection)
 
-   Return an array of all (key, value) tuples in a collection.
+   Return an array of all items in a collection. For associative collections, returns (key, value) tuples.
 
 .. function:: merge(collection, others...)
 
@@ -365,6 +361,10 @@ As with arrays, ``Dicts`` may be created with comprehensions. For example,
 
    Update collection, removing (key, value) pairs for which function is false.
 
+.. function:: eltype(collection)
+
+   Returns the type tuple of the (key,value) pairs contained in collection.
+
 Fully implemented by: ``ObjectIdDict``, ``Dict``, ``WeakKeyDict``.
 
 Partially implemented by: ``IntSet``, ``Set``, ``EnvHash``, ``FDSet``, ``Array``.
@@ -372,7 +372,7 @@ Partially implemented by: ``IntSet``, ``Set``, ``EnvHash``, ``FDSet``, ``Array``
 Set-Like Collections
 --------------------
 
-.. function:: add(collection, key)
+.. function:: add!(collection, key)
 
    Add an element to a set-like collection.
 
@@ -431,9 +431,9 @@ Dequeues
 
    Remove the item at the given index.
 
-.. function:: grow!(collection, n)
+.. function:: resize!(collection, n)
 
-   Add uninitialized space for ``n`` elements at the end of a collection.
+   Resize collection to contain ``n`` elements.
 
 .. function:: append!(collection, items)
 
@@ -444,19 +444,15 @@ Fully implemented by: ``Vector`` (aka 1-d ``Array``).
 Strings
 -------
 
-.. function:: strlen(s)
+.. function:: length(s)
 
    The number of characters in string ``s``.
 
-.. function:: length(s)
-
-   The last valid index for string ``s``. Indexes are byte offsets and not character numbers.
-
-.. function:: chars(string)
+.. function:: collect(string)
 
    Return an array of the characters in ``string``.
 
-.. function:: strcat(strs...)
+.. function:: string(strs...)
 
    Concatenate strings.
 
@@ -492,7 +488,7 @@ Strings
 
    Convert a string to a contiguous UTF-8 string (all characters must be valid UTF-8 characters).
 
-.. function:: strchr(string, char, [i])
+.. function:: search(string, char, [i])
 
    Return the index of ``char`` in ``string``, giving 0 if not found. The second argument may also be a vector or a set of characters. The third argument optionally specifies a starting index.
 
@@ -692,25 +688,25 @@ Text I/O
 
    Create an iterable object that will yield each line from a stream.
 
-.. function:: dlmread(filename, delim::Char)
+.. function:: readdlm(filename, delim::Char)
 
    Read a matrix from a text file where each line gives one row, with elements separated by the given delimeter. If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a cell array of numbers and strings is returned.
 
-.. function:: dlmread(filename, delim::Char, T::Type)
+.. function:: readdlm(filename, delim::Char, T::Type)
 
    Read a matrix from a text file with a given element type. If ``T`` is a numeric type, the result is an array of that type, with any non-numeric elements as ``NaN`` for floating-point types, or zero. Other useful values of ``T`` include ``ASCIIString``, ``String``, and ``Any``.
 
-.. function:: dlmwrite(filename, array, delim::Char)
+.. function:: writedlm(filename, array, delim::Char)
 
    Write an array to a text file using the given delimeter (defaults to comma).
 
-.. function:: csvread(filename, [T::Type])
+.. function:: readcsv(filename, [T::Type])
 
-   Equivalent to ``dlmread`` with ``delim`` set to comma.
+   Equivalent to ``readdlm`` with ``delim`` set to comma.
 
-.. function:: csvwrite(filename, array)
+.. function:: writecsv(filename, array)
 
-   Equivalent to ``dlmwrite`` with ``delim`` set to comma.
+   Equivalent to ``writedlm`` with ``delim`` set to comma.
 
 Memory-mapped I/O
 -----------------
@@ -767,17 +763,25 @@ Mathematical Functions
 
    Largest integer less than or equal to a/b
 
-.. function:: mod
+.. function:: mod(x,m)
 
-   Modulus after division
+   Modulus after division, returning in the range [0,m)
 
 .. function:: rem %
 
    Remainder after division
 
+.. function:: mod1(x,m)
+
+   Modulus after division, returning in the range (0,m]
+
 .. function:: //
 
    Rational division
+
+.. function:: num(x)
+
+   Numerator of the rational representation of ``x``
 
 .. function:: den(x)
 
@@ -1160,6 +1164,10 @@ Mathematical Functions
 
    Compute ``factorial(n)/factorial(k)``
 
+.. function:: factor(n)
+
+   Compute the prime factorization of an integer ``n``
+
 .. function:: gcd(x,y)
 
    Greatest common divisor
@@ -1168,9 +1176,21 @@ Mathematical Functions
 
    Least common multiple
 
+.. function:: gcdx(x,y)
+
+   Greatest common divisor, also returning integer coefficients ``u`` and ``v`` that solve ``ux+vy == gcd(x,y)``
+
+.. function:: ispow2(n)
+
+   Test whether ``n`` is a power of two
+
 .. function:: nextpow2(n)
 
    Next power of two not less than ``n``
+
+.. function:: prevpow2(n)
+
+   Previous power of two not greater than ``n``
 
 .. function:: nextpow(a, n)
 
@@ -1187,6 +1207,10 @@ Mathematical Functions
 .. function:: prevprod([a,b,c], n)
 
    Previous integer not greater than ``n`` that can be written ``a^i1 * b^i2 * c^i3`` for integers ``i1``, ``i2``, ``i3``.
+
+.. function:: invmod(x,m)
+
+   Inverse of ``x``, modulo ``m``
 
 .. function:: powermod(x, p, m)
 
@@ -1314,6 +1338,22 @@ Data Formats
 
    Convert a number or numeric array to boolean
 
+.. function:: isbool(x)
+
+   Test whether number or array is boolean
+
+.. function:: int(x)
+
+   Convert a number or array to the default integer type on your platform. Alternatively, ``x`` can be a string, which is parsed as an integer.
+
+.. function:: integer(x)
+
+   Convert a number or array to integer type. If ``x`` is already of integer type it is unchanged, otherwise it converts it to the default integer type on your platform.
+
+.. function:: isinteger(x)
+
+   Test whether a number or array is of integer type
+
 .. function:: int8(x)
 
    Convert a number or array to ``Int8`` data type
@@ -1329,6 +1369,10 @@ Data Formats
 .. function:: int64(x)
 
    Convert a number or array to ``Int64`` data type
+
+.. function:: int128(x)
+
+   Convert a number or array to ``Int128`` data type
 
 .. function:: uint8(x)
 
@@ -1346,6 +1390,10 @@ Data Formats
 
    Convert a number or array to ``Uint64`` data type
 
+.. function:: uint128(x)
+
+   Convert a number or array to ``Uint128`` data type
+
 .. function:: float32(x)
 
    Convert a number or array to ``Float32`` data type
@@ -1354,6 +1402,14 @@ Data Formats
 
    Convert a number or array to ``Float64`` data type
 
+.. function:: float(x)
+
+   Convert a number, array, or string to a ``FloatingPoint`` data type. For numeric data, the smallest suitable ``FloatingPoint`` type is used. For strings, it converts to ``Float64``.
+
+.. function:: float64_valued(x::Rational)
+
+   True if ``x`` can be losslessly represented as a ``Float64`` data type
+
 .. function:: complex64(r,i)
 
    Convert to ``r+i*im`` represented as a ``Complex64`` data type
@@ -1361,10 +1417,6 @@ Data Formats
 .. function:: complex128(r,i)
 
    Convert to ``r+i*im`` represented as a ``Complex128`` data type
-
-.. function:: float64(x)
-
-   Convert a number or array to ``Float64`` data type
 
 .. function:: char(x)
 
@@ -1421,9 +1473,21 @@ Numbers
 
    Test whether a number is finite
 
+.. function:: isinf(f)
+
+   Test whether a number is infinite
+
 .. function:: isnan(f)
 
    Test whether a floating point number is not a number (NaN)
+
+.. function:: inf(f)
+
+   Returns infinity in the same floating point type as ``f`` (or ``f`` can by the type itself)
+
+.. function:: nan(f)
+
+   Returns NaN in the same floating point type as ``f`` (or ``f`` can by the type itself)
 
 .. function:: nextfloat(f)
 
@@ -1498,6 +1562,23 @@ Integers
    
    **Example**: ``trailing_ones(3) -> 2``
 
+.. function:: isprime(x::Integer) -> Bool
+
+   Returns ``true`` if ``x`` is prime, and ``false`` otherwise.
+
+  **Example**: ``isprime(3) -> true``
+
+.. function: isodd(x::Integer) -> Bool
+
+   Returns ``true`` if ``x`` is odd (that is, not divisible by 2), and ``false`` otherwise.
+
+   **Example**: ``isodd(9) -> false``
+
+.. function: iseven(x::Integer) -> Bool
+
+   Returns ``true`` is ``x`` is even (that is, divisible by 2), and ``false`` otherwise.
+
+   **Example**: ``iseven(1) -> false``
 
 Random Numbers
 --------------
@@ -1565,10 +1646,6 @@ Basic functions
 .. function:: eltype(A)
 
    Returns the type of the elements contained in A
-
-.. function:: numel(A)
-
-   Returns the number of elements in A
 
 .. function:: length(A)
 
@@ -1748,9 +1825,9 @@ Indexing, Assignment, and Concatenation
 
    Like ``permutedims``, except the inverse of the given permutation is applied.
 
-.. function:: squeeze(A)
+.. function:: squeeze(A, dims)
 
-   Remove singleton dimensions from the shape of array ``A``
+   Remove the dimensions specified by ``dims`` from array ``A``
 
 .. function:: vec(A)
 
@@ -1847,25 +1924,73 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Compute the norm of a ``Vector`` or a ``Matrix``
 
-.. function:: lu(A) -> LU
+.. function:: factors(F)
 
-   Compute LU factorization. LU is an "LU factorization" type that can be used as an ordinary matrix.
+   Return the factors of a factorization ``F``. For example, in the case of an LU decomposition, factors(LU) -> L, U, P
 
-.. function:: chol(A)
+.. function:: lu(A) -> L, U, P
 
-   Compute Cholesky factorization
+   Compute the LU factorization of ``A``, such that ``A[P,:] = L*U``.
 
-.. function:: qr(A)
+.. function:: lufact(A) -> LUDense
 
-   Compute QR factorization
+   Compute the LU factorization of ``A`` and return a ``LUDense`` object. ``factors(lufact(A))`` returns the triangular matrices containing the factorization. The following functions are available for ``LUDense`` objects: ``size``, ``factors``, ``\``, ``inv``, ``det``.
 
-.. function:: qrp(A)
+.. function:: lufact!(A) -> LUDense
 
-   Compute QR factorization with pivoting
+   ``lufact!`` is the same as ``lufact`` but saves space by overwriting the input A, instead of creating a copy.
 
-.. function:: factors(D)
+.. function:: chol(A, [LU]) -> F
 
-   Return the factors of a decomposition D. For an LU decomposition, factors(LU) -> L, U, p
+   Compute Cholesky factorization of a symmetric positive-definite matrix ``A`` and return the matrix ``F``. If ``LU`` is ``L`` (Lower), ``A = L*L'``. If ``LU`` is ``U`` (Upper), ``A = R'*R``.
+
+.. function:: cholfact(A, [LU]) -> CholeskyDense
+
+   Compute the Cholesky factorization of a symmetric positive-definite matrix ``A`` and return a ``CholeskyDense`` object. ``LU`` may be 'L' for using the lower part or 'U' for the upper part. The default is to use 'U'. ``factors(cholfact(A))`` returns the triangular matrix containing the factorization. The following functions are available for ``CholeskyDense`` objects: ``size``, ``factors``, ``\``, ``inv``, ``det``. A ``LAPACK.PosDefException`` error is thrown in case the matrix is not positive definite.
+
+.. function: cholfact!(A, [LU]) -> CholeskyDense
+
+   ``cholfact!`` is the same as ``cholfact`` but saves space by overwriting the input A, instead of creating a copy.
+
+..  function:: cholpfact(A, [LU]) -> CholeskyPivotedDense
+
+   Compute the pivoted Cholesky factorization of a symmetric positive semi-definite matrix ``A`` and return a ``CholeskyDensePivoted`` object. ``LU`` may be 'L' for using the lower part or 'U' for the upper part. The default is to use 'U'. ``factors(cholpfact(A))`` returns the triangular matrix containing the factorization. The following functions are available for ``CholeskyDensePivoted`` objects: ``size``, ``factors``, ``\``, ``inv``, ``det``. A ``LAPACK.RankDeficientException`` error is thrown in case the matrix is rank deficient.
+
+.. function:: cholpfact!(A, [LU]) -> CholeskyPivotedDense
+
+   ``cholpfact!`` is the same as ``cholpfact`` but saves space by overwriting the input A, instead of creating a copy.
+
+.. function:: qr(A) -> Q, R
+
+   Compute the QR factorization of ``A`` such that ``A = Q*R``. Also see ``qrd``.
+
+.. function:: qrfact(A)
+
+   Compute the QR factorization of ``A`` and return a ``QRDense`` object. ``factors(qrfact(A))`` returns ``Q`` and ``R``. The following functions are available for ``QRDense`` objects: ``size``, ``factors``, ``qmulQR``, ``qTmulQR``, ``\``. 
+
+.. function:: qrfact!(A)
+
+   ``qrfact!`` is the same as ``qrfact`` but saves space by overwriting the input A, instead of creating a copy.
+
+.. function:: qrp(A) -> Q, R, P
+
+   Compute the QR factorization of ``A`` with pivoting, such that ``A*I[:,P] = Q*R``, where ``I`` is the identity matrix. Also see ``qrpfact``.
+
+.. function:: qrpfact(A) -> QRPivotedDense
+
+   Compute the QR factorization of ``A`` with pivoting and return a ``QRDensePivoted`` object. ``factors(qrpfact(A))`` returns ``Q`` and ``R``. The following functions are available for ``QRDensePivoted`` objects: ``size``, ``factors``, ``qmulQR``, ``qTmulQR``, ``\``. 
+
+.. function:: qrpfact!(A) -> QRPivotedDense
+
+   ``qrpfact!`` is the same as ``qrpfact`` but saves space by overwriting the input A, instead of creating a copy.
+
+.. function:: qmulQR(QR, A)
+   
+   Perform Q*A efficiently, where Q is a an orthogonal matrix defined as the product of k elementary reflectors from the QR decomposition.
+
+.. function:: qTmulQR(QR, A)
+
+   Perform Q'*A efficiently, where Q is a an orthogonal matrix defined as the product of k elementary reflectors from the QR decomposition.
 
 .. function:: eig(A) -> D, V
 
@@ -1875,17 +2000,41 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Returns the eigenvalues of ``A``.
 
-.. function:: svd(A) -> U, S, V
+.. function:: svdfact(A, [thin]) -> SVDDense
 
-   Compute the SVD of A, returning ``U``, ``S``, and ``V`` such that ``A = U*S*V'``.
+   Compute the Singular Value Decomposition (SVD) of ``A`` and return an ``SVDDense`` object. ``factors(svdfact(A))`` returns ``U``, ``S``, and ``Vt``, such that ``A = U*diagm(S)*Vt``. If ``thin`` is ``true``, an economy mode decomposition is returned.
 
-.. function:: svdt(A) -> U, S, Vt
+.. function:: svdfact!(A, [thin]) -> SVDDense
 
-   Compute the SVD of A, returning ``U``, ``S``, and ``Vt`` such that ``A = U*S*Vt``.
+   ``svdfact!`` is the same as ``svdfact`` but saves space by overwriting the input A, instead of creating a copy. If ``thin`` is ``true``, an economy mode decomposition is returned.
+
+.. function:: svd(A, [thin]) -> U, S, V
+
+   Compute the SVD of A, returning ``U``, ``S``, and ``V`` such that ``A = U*S*V'``. If ``thin`` is ``true``, an economy mode decomposition is returned.
+
+.. function:: svdt(A, [thin]) -> U, S, Vt
+
+   Compute the SVD of A, returning ``U``, ``S``, and ``Vt`` such that ``A = U*S*Vt``. If ``thin`` is ``true``, an economy mode decomposition is returned.
 
 .. function:: svdvals(A)
 
    Returns the singular values of ``A``.
+
+.. function:: svdvals!(A)
+
+   Returns the singular values of ``A``, while saving space by overwriting the input.
+
+.. function:: svdfact(A, B) -> GSVDDense
+
+   Compute the generalized SVD of ``A`` and ``B``, returning a ``GSVDDense`` Factorization object.
+   
+.. function:: svd(A, B) -> U, V, X, C, S
+
+   Compute the generalized SVD of ``A`` and ``B``.
+ 
+.. function:: svdvals(A, B)
+
+   Return only the singular values from the generalized singular value decomposition of ``A`` and ``B``.
 
 .. function:: triu(M)
 
@@ -2049,7 +2198,7 @@ Statistics
 
    Compute the histogram of ``v``, optionally using ``n`` bins
 
-.. function:: histc(v, e)
+.. function:: hist(v, e)
 
    Compute the histogram of ``v`` using a vector ``e`` as the edges for the bins
 
@@ -2525,9 +2674,9 @@ Distributed Arrays
 System
 ------
 
-.. function:: system("command")
+.. function:: run(command)
 
-   Run a shell command.
+   Run a command object, constructed with backticks.
 
 .. function:: gethostname()
 
