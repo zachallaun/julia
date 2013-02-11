@@ -1,28 +1,47 @@
 module SuiteSparse
 
-import Base.SparseMatrixCSC, Base.size, Base.nnz, Base.eltype, Base.show
-import Base.triu, Base.norm, Base.solve, Base.lu, Base.lud, Base.lud!
-#, Base.(\)
-import Base.Ac_ldiv_B, Base.At_ldiv_B, Base.convert
+export ChmCommon,
+       CholmodDense,                    # types
+       CholmodFactor,
+       CholmodSparse,
+       CholmodTriplet,
+       UmfpackLU,
+                                        # methods
+       chm_check,
+       chm_eye,
+       chm_ones,
+       chm_print,
+       chm_zeros,
+       decrement,
+       decrement!,
+       increment,
+       increment!,
+       indtype,
+       show_umf_ctrl,
+       show_umf_info
 
+import Base.(*)
+import Base.(\)
+import Base.Ac_ldiv_B
+import Base.At_ldiv_B
 import Base.BlasInt
+import Base.SparseMatrixCSC
 import Base.blas_int
-
-export                                  # types
-CholmodSparse,
-#    CholmodFactor,
-CholmodDense,
-#    CholmodSparseOut,
-UmfpackLU,                          # call these lu and lu! instead?
-UmfpackLU!,
-# methods
-decrement,
-decrement!,
-increment,
-increment!,
-indtype,
-show_umf_ctrl,
-show_umf_info
+import Base.cholfact
+import Base.cholfact!
+import Base.convert
+import Base.copy
+import Base.ctranspose
+import Base.eltype
+import Base.lufact
+import Base.lufact!
+import Base.nnz
+import Base.norm
+import Base.show
+import Base.size
+import Base.solve
+import Base.transpose
+import Base.triu
 
 include("suitesparse_h.jl")
 
@@ -49,7 +68,7 @@ end
 typealias CHMITypes Union(Int32,Int64)       # also ITypes for UMFPACK
 typealias CHMVTypes Union(Complex64, Complex128, Float32, Float64)
 typealias UMFVTypes Union(Float64,Complex128)
-
+    
 ## UMFPACK
 
 # the control and info arrays
@@ -114,12 +133,12 @@ end
 
 ### Solve with Factorization
 
-#(\){T<:UMFVTypes}(fact::UmfpackLU{T}, b::Vector{T}) = umfpack_solve(fact, b)
-#(\){Ts<:UMFVTypes,Tb<:Number}(fact::UmfpackLU{Ts}, b::Vector{Tb}) = fact\convert(Vector{Ts},b)
+(\){T<:UMFVTypes}(fact::UmfpackLU{T}, b::Vector{T}) = umfpack_solve(fact, b)
+(\){Ts<:UMFVTypes,Tb<:Number}(fact::UmfpackLU{Ts}, b::Vector{Tb}) = fact\convert(Vector{Ts},b)
   
 ### Solve directly with matrix
 
-#(\)(S::SparseMatrixCSC, b::Vector) = lu(S) \ b
+(\)(S::SparseMatrixCSC, b::Vector) = lud(S) \ b
 At_ldiv_B{T<:UMFVTypes}(S::SparseMatrixCSC{T}, b::Vector{T}) = umfpack_solve(lud(S), b, UMFPACK_Aat)
 function At_ldiv_B{Ts<:UMFVTypes,Tb<:Number}(S::SparseMatrixCSC{Ts}, b::Vector{Tb})
     ## should be more careful here in case Ts<:Real and Tb<:Complex
@@ -298,15 +317,15 @@ umfpack_report_numeric(lu::UmfpackLU) = umfpack_report_numeric(lu.symbolic,4.)
 
 ## CHOLMOD
 
-const chm_com_sz = ccall((:jl_cholmod_common_size, :libsuitesparse_wrapper), Int, ())
+ const chm_com_sz = ccall((:jl_cholmod_common_size,:libsuitesparse_wrapper),Int,())
 
 ### Need one cholmod_common struct for Int32 and one for Int64
 const chm_com    = Array(Uint8, chm_com_sz)
 ccall((:cholmod_start, :libcholmod), Int32, (Ptr{Uint8},), chm_com)
 
-const chm_l_com  = Array(Uint8, chm_com_sz)
-ccall((:cholmod_l_start, :libcholmod), Int32, (Ptr{Uint8},), chm_l_com)
-### A way of examining some of the fields in chm_com or chm_l_com
+### A way of examining some of the fields in chm_com
+### Probably better to make this a Dict{ASCIIString,Tuple} and
+### save the offsets and the lengths and the types.  Then the names can be checked.
 type ChmCommon
     dbound::Float64
     maxrank::Int
@@ -333,17 +352,15 @@ end
 const chm_com_offsets = Array(Int, length(ChmCommon.types))
 ccall((:jl_cholmod_common_offsets, :libsuitesparse_wrapper),
       Void, (Ptr{Uint8},), chm_com_offsets)
-                                               
+const chm_prt_inds = (1:4) + chm_com_offsets[13]
+const chm_ityp_inds = (1:4) + chm_com_offsets[18] 
+                                              
 ### there must be an easier way but at least this works.
 function ChmCommon(aa::Array{Uint8,1})
     typs = ChmCommon.types
     sz = map(sizeof, typs)
     args = map(i->reinterpret(typs[i], aa[chm_com_offsets[i] + (1:sz[i])])[1], 1:length(sz))
     eval(Expr(:call, unshift!(args, :ChmCommon), Any))
-end
-
-function chm_itype{Tv,Ti<:CHMITypes}(S::SparseMatrixCSC{Tv,Ti})
-    int32(Ti == Int32 ? CHOLMOD_INT : CHOLMOD_LONG)
 end
 function chm_xtype{T<:CHMVTypes}(S::SparseMatrixCSC{T})
     int32(T<:Complex ? CHOLMOD_COMPLEX : CHOLMOD_REAL)
@@ -372,18 +389,16 @@ end
 
 type CholmodDense{T<:CHMVTypes}
     c::c_CholmodDense
-    m::Matrix{T} # Array(T,(0,0)) when created from Ptr{c_CholmodDense{T}}
-    ptr::Ptr{c_CholmodDense{T}} # null pointer when created from Julia array
+    mat::Matrix{T}
 end
-
-convert(::Type{c_CholmodDense}, d::CholmodDense) = d.c
 
 function CholmodDense{T<:CHMVTypes}(aa::VecOrMat{T})
     m = size(aa,1); n = size(aa,2)
-    CholmodDense{T}(c_CholmodDense{T}(m, n, m*n, stride(aa,2), convert(Ptr{T}, aa), C_NULL,
-                                      int32(T<:Complex ? CHOLMOD_COMPLEX : CHOLMOD_REAL),
-                                      int32(T<:Union(Float32,Complex64) ? CHOLMOD_SINGLE : CHOLMOD_DOUBLE)),
-                    aa, convert(Ptr{c_CholmodDense{T}}, C_NULL))
+    CholmodDense(c_CholmodDense{T}(m, n, m*n, stride(aa,2),
+                                   convert(Ptr{T}, aa), C_NULL,
+                                   T<:Complex ? CHOLMOD_COMPLEX : CHOLMOD_REAL,
+                                   T<:Union(Float32,Complex64) ? CHOLMOD_SINGLE : CHOLMOD_DOUBLE),
+                 aa)
 end
 
 function CholmodDense{T<:CHMVTypes}(c::Ptr{c_CholmodDense{T}})
@@ -391,59 +406,61 @@ function CholmodDense{T<:CHMVTypes}(c::Ptr{c_CholmodDense{T}})
     if cp.lda != cp.m || cp.nzmax != cp.m * cp.n
         error("overallocated cholmod_sparse returned object of size $(cp.m) by $(cp.n) with leading dim $(cp.lda) and nzmax $(cp.nzmax)")
     end
-    CholmodDense{T}(cp, Array(T, (0,0)), c)
+    ## the true in the call to pointer_to_array means Julia will free the memory
+    val = CholmodDense(cp, pointer_to_array(cp.xpt, (cp.m,cp.n), true))
+    c_free(c)
+    val
 end
+show(io::IO, cd::CholmodDense) = show(io, cd.mat)
 
-function convert{T<:CHMVTypes}(::Type{Array}, chmpt::Ptr{c_CholmodDense{T}}, own::Bool)
-    cp = unsafe_ref(chmpt)
-    if cp.lda != cp.m || cp.nzmax != cp.m * cp.n
-        error("overallocated cholmod_sparse returned object of size $(cp.m) by $(cp.n) with leading dim $(cp.lda) and nzmax $(cp.nzmax)")
-    end
-    arr = pointer_to_array(cp.xpt, (cp.m, cp.n), own)
-    if !own return copy(arr) end
-    c_free(chmpt)
-end
-convert{T<:CHMVTypes}(::Type{Array}, chmpt::Ptr{c_CholmodDense{T}}) = convert(Array, chmpt, false)
-    
-function chm_chk_dn{T<:CHMVTypes}(cd::CholmodDense{T})
-    ccall((:cholmod_check_dense, :libcholmod), Int,
-          (Ptr{CholmodDense{T}}, Ptr{Uint8}), &cd, chm_com)
-end
-
-function chm_ones(m::Integer, n::Integer, t::Float64)
-    ccall((:cholmod_ones, :libcholmod), Ptr{c_CholmodDense{Float64}},
-                  (Int, Int, Int32, Ptr{Uint8}),
-                  m, n, CHOLMOD_REAL, chm_com)
-end
-function chm_ones(m::Integer, n::Integer, t::Complex128)
-    ccall((:cholmod_ones, :libcholmod), Ptr{c_CholmodDense{Complex128}},
-          (Int, Int, Int32, Ptr{Uint8}),
-          m, n, CHOLMOD_COMPLEX, chm_com)
-end
-chm_ones(m::Integer, n::Integer) = chm_ones(m, n, 1.)
-
-function chm_free_dn{T<:UMFVTypes}(A::Ptr{c_CholmodDense{T}})
-    aa = [A]
-    status = ccall((:cholmod_free_dense, :libcholmod), Int32,
-                   (Ptr{Ptr{c_CholmodDense{T}}}, Ptr{Uint8}), aa, chm_com)
+function chm_check{T<:CHMVTypes}(cd::CholmodDense{T})
+    status = ccall((:cholmod_check_dense, :libcholmod), Int32,
+                   (Ptr{c_CholmodDense{T}}, Ptr{Uint8}), &cd.c, chm_com)
     if status != CHOLMOD_TRUE throw(CholmodException) end
 end
 
-## This should be converted to a show method    
-function chm_prt_dn{T<:CHMVTypes}(cd::CholmodDense{T}, lev::Integer, nm::ASCIIString)
-    inds = (1:4) + chm_com_offsets[13]
-    orig = chm_com[inds]
-    chm_com[inds] = reinterpret(Uint8, [int32(lev)])
-    status = ccall((:cholmod_print_dense, :libcholmod), Int32,
-                   (Ptr{CholmodDense{T}}, Ptr{Uint8}, Ptr{Uint8}),
-                   &cd, nm, chm_com)
-    chm_com[inds] = orig
+function chm_ones{T<:Union(Float64,Complex128)}(m::Integer, n::Integer, t::T)
+    CholmodDense(ccall((:cholmod_ones, :libcholmod), Ptr{c_CholmodDense{T}},
+                       (Int, Int, Int32, Ptr{Uint8}),
+                       m, n,
+                       T<:Complex ? CHOLMOD_COMPLEX : CHOLMOD_REAL,
+                       chm_com))
 end
+chm_ones(m::Integer, n::Integer) = chm_ones(m, n, 1.)
 
-chm_prt_dn{T<:CHMVTypes}(cd::CholmodDense{T}, lev::Integer) = chm_prt_dn(cd, lev, "")    
-chm_prt_dn{T<:CHMVTypes}(cd::CholmodDense{T}) = chm_prt_dn(cd, int32(4), "")
+function chm_zeros{T<:Union(Float64,Complex128)}(m::Integer, n::Integer, t::T)
+    CholmodDense(ccall((:cholmod_zeros, :libcholmod), Ptr{c_CholmodDense{T}},
+                       (Int, Int, Int32, Ptr{Uint8}),
+                       m, n,
+                       T<:Complex ? CHOLMOD_COMPLEX : CHOLMOD_REAL,
+                       chm_com))
+end
+chm_zeros(m::Integer, n::Integer) = chm_zeros(m, n, 1.)
 
-type CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
+function chm_eye{T<:Union(Float64,Complex128)}(m::Integer, n::Integer, t::T)
+    CholmodDense(ccall((:cholmod_eye, :libcholmod), Ptr{c_CholmodDense{T}},
+                       (Int, Int, Int32, Ptr{Uint8}),
+                       m, n,
+                       T<:Complex ? CHOLMOD_COMPLEX : CHOLMOD_REAL,
+                       chm_com))
+end
+chm_eye(m::Integer, n::Integer) = chm_eye(m, n, 1.)
+chm_eye(n::Integer) = chm_eye(n, n, 1.)
+ 
+ 
+function chm_print{T<:CHMVTypes}(cd::CholmodDense{T}, lev::Integer, nm::ASCIIString)
+    orig = chm_com[chm_prt_inds]
+    chm_com[chm_prt_inds] = reinterpret(Uint8, [int32(lev)])
+    status = ccall((:cholmod_print_dense, :libcholmod), Int32,
+                   (Ptr{c_CholmodDense{T}}, Ptr{Uint8}, Ptr{Uint8}),
+                   &cd.c, nm, chm_com)
+    chm_com[chm_prt_inds] = orig
+    if status != CHOLMOD_TRUE throw(CholmodException) end
+end
+chm_print(cd::CholmodDense, lev::Integer) = chm_print(cd, lev, "")
+chm_print(cd::CholmodDense) = chm_print(cd, int32(4), "")
+
+type c_CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
     m::Int
     n::Int
     nzmax::Int
@@ -458,23 +475,140 @@ type CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
     dtype::Int32
     sorted::Int32
     packed::Int32
-    colptr0::Vector{Ti} # 0-based column pointers
-    rowval0::Vector{Ti} # 0-based row indices
-    nzval::Vector{Tv}   # a copy of the non-zero values
-    chm_free::Bool      # was storage allocated by Cholmod?
-    structpt::Ptr{Void} # pointer to the C struct (when created from Cholmod results)
 end
 
+type CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
+    c::c_CholmodSparse{Tv,Ti}
+    colptr0::Vector{Ti}
+    rowval0::Vector{Ti}
+    nzval::Vector{Tv}
+end
+ 
 function CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}(A::SparseMatrixCSC{Tv,Ti})
     colptr0 = decrement(A.colptr)
     rowval0 = decrement(A.rowval)
     nzval = copy(A.nzval)
-    CholmodSparse{Tv,Ti}(size(A,1),size(A,2),int(colptr0[end]),
-                         convert(Ptr{Ti}, colptr0), convert(Ptr{Ti}, rowval0),
-                         C_NULL, convert(Ptr{Tv}, nzval), C_NULL, int32(0),
-                         chm_itype(A), chm_xtype(A), chm_dtype(A),
-                         CHOLMOD_TRUE, CHOLMOD_TRUE,
-                         colptr0, rowval0, nzval, false, C_NULL)
+    CholmodSparse{Tv,Ti}(c_CholmodSparse{Tv,Ti}(size(A,1),size(A,2),
+                                                int(colptr0[end]),
+                                                convert(Ptr{Ti}, colptr0),
+                                                convert(Ptr{Ti}, rowval0), C_NULL,
+                                                convert(Ptr{Tv}, nzval), C_NULL,
+                                                int32(0), chm_itype(A),
+                                                chm_xtype(A), chm_dtype(A),
+### Assuming that a SparseMatrixCSC always has sorted row indices. Need to check.
+                                                CHOLMOD_TRUE, CHOLMOD_TRUE),
+                         colptr0, rowval0, nzval)
+end
+
+function cmn{Tv,Ti<:CHMITypes}(S::CholmodSparse{Tv,Ti})
+    chm_com[chm_ityp_inds] =
+        reinterpret(Uint8, [Ti<:Int64 ? CHOLMOD_LONG : CHOLMOD_INT])
+    chm_com
+end
+ 
+function CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}(cp::Ptr{c_CholmodSparse{Tv,Ti}})
+    csp = unsafe_ref(cpt)
+    nnz = csp.ppt[end]
+    cms = CholmodSparse{Tv,Ti}(c,
+                               pointer_to_array(csp.ppt, csp.n + 1, true),
+                               pointer_to_array(csp.ipt, nnz, true),
+                               pointer_to_array(csp.xpt, nnz, true))
+    c_free(cp)
+    cms
+end
+
+for (chk,prt,itype) in
+    ((:cholmod_check, :cholmod_print, :Int32),
+     (:cholmod_l_check, :cholmod_l_print, :Int64))
+    @eval begin
+        function chm_check{Tv<:CHMVTypes}(cs::CholmodSparse{Tv,$itype})
+            status = ccall(($(string(chk)),:libcholmod), Int32,
+                           (Ptr{c_CholmodSparse{T,:itype}}, Ptr{Uint8}),
+                           &cs.c, cmn(cs))
+            if status != CHOLMOD_TRUE throw(CholmodException) end
+        end
+        function chm_print{Tv<:CHMVTypes}(cs::CholmodSparse{Tv,$itype},lev,nm)
+            orig = chm_com[chm_prt_inds]
+            chm_com[chm_ptr_inds] = reinterpret(Uint8, [int32(lev)])
+            status = ccall(($(string(prt)),:libcholmod), Int32,
+                           (Ptr{c_CholmodSparse{T,:itype}}, Ptr{Uint8}),
+                           &cs.c, cmn(cs))
+            chm_com[chm_prt_inds] = orig
+            if status != CHOLMOD_TRUE throw(CholmodException) end
+        end
+    end
+end
+
+chm_print(cd::CholmodSparse, lev::Integer) = chm_print(cd, lev, "")
+chm_print(cd::CholmodSparse) = chm_print(cd, int32(4), "")
+
+type c_CholmodFactor{Tv<:CHMVTypes,Ti<:CHMITypes}
+    n::Int
+    minor::Int
+    Perm::Ptr{Ti}
+    ColCount::Ptr{Ti}
+    nzmax::Int
+    p::Ptr{Ti}
+    i::Ptr{Ti}
+    x::Ptr{Tv}
+    z::Ptr{Void}
+    nz::Ptr{Ti}
+    next::Ptr{Ti}
+    prev::Ptr{Ti}
+    nsuper::Int
+    ssize::Int
+    xsize::Int
+    maxcsize::Int
+    maxesize::Int
+    super::Ptr{Ti}
+    pi::Ptr{Ti}
+    px::Ptr{Tv}
+    s::Ptr{Ti}
+    ordering::Int32
+    is_ll::Int32
+    is_super::Int32
+    is_monotonic::Int32
+    itype::Int32
+    xtype::Int32
+    dtype::Int32
+end
+
+type CholmodFactor{Tv<:CHMVTypes,Ti<:CHMITypes}
+    c::c_CholmodFactor{Tv,Ti}
+    Perm::Vector{Ti}
+    ColCount::Vector{Ti}
+    p::Vector{Ti}
+    i::Vector{Ti}
+    x::Vector{Tv}
+    nz::Vector{Ti}
+    next::Vector{Ti}
+    prev::Vector{Ti}
+    super::Vector{Ti}
+    pi::Vector{Ti}
+    px::Vector{Tv}
+    s::Vector{Ti}
+end
+
+type c_CholmodTriplet{Tv<:CHMVTypes,Ti<:CHMITypes}
+    m::Int
+    n::Int
+    nzmax::Int
+    nnz::Int
+    i::Ptr{Ti}
+    j::Ptr{Ti}
+    x::Ptr{Tv}
+    z::Ptr{Void}
+    stype:Int32
+    itype::Int32
+    xtype::Int32
+    dtype::Int32
+end
+
+type CholmodTriplet{Tv<:CHMVTypes,Ti<:CHMITypes}
+    c::c_CholmodTriplet{Tv,Ti}
+    i::Vector{Ti}
+    j::Vector{Ti}
+    x::Vector{Tv}
 end
 
 end #module
