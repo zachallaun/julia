@@ -34,7 +34,7 @@ function DArray(init, dims, procs, dist)
     for i = 1:np
         chunks[i] = remote_call(procs[i], init, idxs[i])
     end
-    p = max(1, localpiece(procs))
+    p = max(1, localpartindex(procs))
     A = remote_call_fetch(procs[p], r->typeof(fetch(r)), chunks[p])
     DArray{eltype(A),length(dims),A}(dims, chunks, procs, idxs, cuts)
 end
@@ -60,7 +60,7 @@ function defaultdist(dims, procs)
     dims = [dims...]
     chunks = ones(Int, length(dims))
     np = length(procs)
-    f = sort!(Sort.Reverse,keys(factor(np)))
+    f = sort!(keys(factor(np)), Sort.Reverse)
     k = 1
     while np > 1
         # repeatedly allocate largest factor to largest dim
@@ -103,7 +103,7 @@ function chunk_idxs(dims, chunks)
     idxs, cuts
 end
 
-function localpiece(pmap::Vector{Int})
+function localpartindex(pmap::Vector{Int})
     mi = myid()
     for i = 1:length(pmap)
         if pmap[i] == mi
@@ -113,10 +113,10 @@ function localpiece(pmap::Vector{Int})
     return 0
 end
 
-localpiece(d::DArray) = localpiece(d.pmap)
+localpartindex(d::DArray) = localpartindex(d.pmap)
 
-localize{T,N,A}(d::DArray{T,N,A}) = fetch(d.chunks[localpiece(d)])::A
-myindexes(d::DArray) = d.indexes[localpiece(d)]
+localpart{T,N,A}(d::DArray{T,N,A}) = fetch(d.chunks[localpartindex(d)])::A
+myindexes(d::DArray) = d.indexes[localpartindex(d)]
 
 # find which piece holds index (I...)
 function locate(d::DArray, I::Int...)
@@ -131,6 +131,8 @@ dzeros(args...) = DArray(I->zeros(map(length,I)), args...)
 dzeros(d::Int...) = dzeros(d)
 dones(args...) = DArray(I->ones(map(length,I)), args...)
 dones(d::Int...) = dones(d)
+dfill(v, args...) = DArray(I->fill(v, map(length,I)), args...)
+dfill(v, d::Int...) = dfill(v, d)
 drand(args...)  = DArray(I->rand(map(length,I)), args...)
 drand(d::Int...) = drand(d)
 drandn(args...) = DArray(I->randn(map(length,I)), args...)

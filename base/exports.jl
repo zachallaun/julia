@@ -14,7 +14,8 @@ export
     Pkg,
     Operators,
     Errno,
-
+    Meta,
+    
 # Types
     AbstractMatrix,
     AbstractSparseMatrix,
@@ -580,7 +581,6 @@ export
     symmetrize!,
     trace,
     transpose,
-    trideig,
     tril,
     triu,
     tril!,
@@ -999,13 +999,13 @@ export
     wait,
 
 # distributed arrays
-    defaultdist,
     distribute,
+    dfill,
     dones,
     drand,
     drandn,
     dzeros,
-    localize,
+    localpart,
     myindexes,
     procs,
 
