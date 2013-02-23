@@ -14,7 +14,9 @@ export ChmCommon,
        chm_factorize,
        chm_ones,
        chm_print,
+       chm_solve,
        chm_speye,
+       chm_spsolve,
        chm_zeros,
        decrement,
        decrement!,
@@ -397,6 +399,99 @@ type CholmodDense{T<:CHMVTypes}
     mat::Matrix{T}
 end
 
+type c_CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
+    m::Int
+    n::Int
+    nzmax::Int
+    ppt::Ptr{Ti}
+    ipt::Ptr{Ti}
+    nzpt::Ptr{Void}
+    xpt::Ptr{Tv}
+    zpt::Ptr{Void}
+    stype::Int32
+    itype::Int32
+    xtype::Int32
+    dtype::Int32
+    sorted::Int32
+    packed::Int32
+end
+
+type CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
+    c::c_CholmodSparse{Tv,Ti}
+    colptr0::Vector{Ti}
+    rowval0::Vector{Ti}
+    nzval::Vector{Tv}
+end
+
+type c_CholmodFactor{Tv<:CHMVTypes,Ti<:CHMITypes}
+    n::Int
+    minor::Int
+    Perm::Ptr{Ti}
+    ColCount::Ptr{Ti}
+    nzmax::Int
+    p::Ptr{Ti}
+    i::Ptr{Ti}
+    x::Ptr{Tv}
+    z::Ptr{Void}
+    nz::Ptr{Ti}
+    next::Ptr{Ti}
+    prev::Ptr{Ti}
+    nsuper::Int
+    ssize::Int
+    xsize::Int
+    maxcsize::Int
+    maxesize::Int
+    super::Ptr{Ti}
+    pi::Ptr{Ti}
+    px::Ptr{Tv}
+    s::Ptr{Ti}
+    ordering::Int32
+    is_ll::Int32
+    is_super::Int32
+    is_monotonic::Int32
+    itype::Int32
+    xtype::Int32
+    dtype::Int32
+end
+
+type CholmodFactor{Tv<:CHMVTypes,Ti<:CHMITypes}
+    c::c_CholmodFactor{Tv,Ti}
+    Perm::Vector{Ti}
+    ColCount::Vector{Ti}
+    p::Vector{Ti}
+    i::Vector{Ti}
+    x::Vector{Tv}
+    nz::Vector{Ti}
+    next::Vector{Ti}
+    prev::Vector{Ti}
+    super::Vector{Ti}
+    pi::Vector{Ti}
+    px::Vector{Tv}
+    s::Vector{Ti}
+end
+
+type c_CholmodTriplet{Tv<:CHMVTypes,Ti<:CHMITypes}
+    m::Int
+    n::Int
+    nzmax::Int
+    nnz::Int
+    i::Ptr{Ti}
+    j::Ptr{Ti}
+    x::Ptr{Tv}
+    z::Ptr{Void}
+    stype:Int32
+    itype::Int32
+    xtype::Int32
+    dtype::Int32
+end
+
+type CholmodTriplet{Tv<:CHMVTypes,Ti<:CHMITypes}
+    c::c_CholmodTriplet{Tv,Ti}
+    i::Vector{Ti}
+    j::Vector{Ti}
+    x::Vector{Tv}
+end
+ 
 function CholmodDense{T<:CHMVTypes}(aa::VecOrMat{T})
     m = size(aa,1); n = size(aa,2)
     CholmodDense(c_CholmodDense{T}(m, n, m*n, stride(aa,2),
@@ -465,40 +560,18 @@ end
 chm_print(cd::CholmodDense, lev::Integer) = chm_print(cd, lev, "")
 chm_print(cd::CholmodDense) = chm_print(cd, int32(4), "")
 
-type c_CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
-    m::Int
-    n::Int
-    nzmax::Int
-    ppt::Ptr{Ti}
-    ipt::Ptr{Ti}
-    nzpt::Ptr{Void}
-    xpt::Ptr{Tv}
-    zpt::Ptr{Void}
-    stype::Int32
-    itype::Int32
-    xtype::Int32
-    dtype::Int32
-    sorted::Int32
-    packed::Int32
-end
-
-type CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
-    c::c_CholmodSparse{Tv,Ti}
-    colptr0::Vector{Ti}
-    rowval0::Vector{Ti}
-    nzval::Vector{Tv}
-end
-
 function CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}(A::SparseMatrixCSC{Tv,Ti})
-    colptr0 = decrement(A.colptr)
-    rowval0 = decrement(A.rowval)
-    nzval = copy(A.nzval)
+    stype = ishermitian(A) ? 1 : 0
+    aa = stype > 0 ? triu(A) : A
+    colptr0 = decrement(aa.colptr)
+    rowval0 = decrement(aa.rowval)
+    nzval = copy(aa.nzval)
     CholmodSparse{Tv,Ti}(c_CholmodSparse{Tv,Ti}(size(A,1),size(A,2),
                                                 int(colptr0[end]),
                                                 convert(Ptr{Ti}, colptr0),
                                                 convert(Ptr{Ti}, rowval0), C_NULL,
                                                 convert(Ptr{Tv}, nzval), C_NULL,
-                                                int32(0), chm_itype(A),
+                                                int32(stype), chm_itype(A),
                                                 chm_xtype(A), chm_dtype(A),
 ### Assuming that a SparseMatrixCSC always has sorted row indices. Need to check.
                                                 CHOLMOD_TRUE, CHOLMOD_TRUE),
@@ -513,6 +586,9 @@ end
 cmn{Tv,Ti<:CHMITypes}(A::CholmodSparse{Tv,Ti}) = cmn(one(Ti))
 cmn{Tv,Ti<:CHMITypes}(a::c_CholmodSparse{Tv,Ti}) = cmn(one(Ti)) 
 cmn{Tv,Ti<:CHMITypes}(ap::Ptr{c_CholmodSparse{Tv,Ti}}) = cmn(one(Ti)) 
+cmn{Tv,Ti<:CHMITypes}(L::CholmodFactor{Tv,Ti}) = cmn(one(Ti))
+cmn{Tv,Ti<:CHMITypes}(l::c_CholmodFactor{Tv,Ti}) = cmn(one(Ti)) 
+cmn{Tv,Ti<:CHMITypes}(lp::Ptr{c_CholmodFactor{Tv,Ti}}) = cmn(one(Ti)) 
  
 function CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}(cp::Ptr{c_CholmodSparse{Tv,Ti}})
     csp = unsafe_ref(cp)
@@ -591,52 +667,6 @@ function chm_aat{Tv<:CHMVTypes,Ti<:Int64}(A::CholmodSparse{Tv,Ti})
 end
 chm_aat{Tv<:CHMVTypes,Ti<:Int64}(A::SparseMatrixCSC{Tv,Ti}) = chm_aat(CholmodSparse(A))
 
-type c_CholmodFactor{Tv<:CHMVTypes,Ti<:CHMITypes}
-    n::Int
-    minor::Int
-    Perm::Ptr{Ti}
-    ColCount::Ptr{Ti}
-    nzmax::Int
-    p::Ptr{Ti}
-    i::Ptr{Ti}
-    x::Ptr{Tv}
-    z::Ptr{Void}
-    nz::Ptr{Ti}
-    next::Ptr{Ti}
-    prev::Ptr{Ti}
-    nsuper::Int
-    ssize::Int
-    xsize::Int
-    maxcsize::Int
-    maxesize::Int
-    super::Ptr{Ti}
-    pi::Ptr{Ti}
-    px::Ptr{Tv}
-    s::Ptr{Ti}
-    ordering::Int32
-    is_ll::Int32
-    is_super::Int32
-    is_monotonic::Int32
-    itype::Int32
-    xtype::Int32
-    dtype::Int32
-end
-
-type CholmodFactor{Tv<:CHMVTypes,Ti<:CHMITypes}
-    c::c_CholmodFactor{Tv,Ti}
-    Perm::Vector{Ti}
-    ColCount::Vector{Ti}
-    p::Vector{Ti}
-    i::Vector{Ti}
-    x::Vector{Tv}
-    nz::Vector{Ti}
-    next::Vector{Ti}
-    prev::Vector{Ti}
-    super::Vector{Ti}
-    pi::Vector{Ti}
-    px::Vector{Tv}
-    s::Vector{Ti}
-end
 
 cmn{Tv<:CHMVTypes,Ti<:CHMITypes}(L::CholmodFactor{Tv,Ti}) = cmn(one(Ti))
 cmn{Tv<:CHMVTypes,Ti<:CHMITypes}(l::c_CholmodFactor{Tv,Ti}) = cmn(one(Ti))
@@ -678,75 +708,54 @@ for (anl,fac,slv,spslv,itype) in
                            &a, &l, cmn(a))
             if status != CHOLMOD_TRUE throw(CholmodException) end
         end
+        function chm_factorize{Tv<:CHMVTypes}(a::c_CholmodSparse{Tv,$itype})
+            Lpt = ccall(($(string(anl)),:libcholmod), Ptr{c_CholmodFactor{Tv,$itype}},
+                        (Ptr{c_CholmodSparse{Tv,$itype}}, Ptr{Uint8}), &a, cmn(a))
+            status = ccall(($(string(fac)),:libcholmod), Int32,
+                           (Ptr{c_CholmodSparse{Tv,$itype}}, 
+                            Ptr{c_CholmodFactor{Tv,$itype}}, Ptr{Uint8}),
+                           &a, Lpt, cmn(a))
+            if status != CHOLMOD_TRUE throw(CholmodException) end
+            CholmodFactor(Lpt)
+        end
+        function chm_solve{Tv<:CHMVTypes}(l::c_CholmodFactor{Tv,$itype},
+                                          b::c_CholmodDense{Tv}, typ::Integer)
+            ccall(($(string(slv)),:libcholmod), Ptr{c_CholmodDense{Tv}},
+                  (Int32, Ptr{c_CholmodFactor{Tv,$itype}},
+                   Ptr{c_CholmodDense{Tv}}, Ptr{Uint8}),
+                  typ, &l, &b, cmn(l))
+        end
+        function chm_spsolve{Tv<:CHMVTypes}(l::c_CholmodFactor{Tv,$itype},
+                                            b::c_CholmodSparse{Tv,$itype},
+                                            typ::Integer)
+            ccall(($(string(spslv)),:libcholmod), Ptr{c_CholmodSparse{Tv,$itype}},
+                  (Int32, Ptr{c_CholmodFactor{Tv,$itype}},
+                   Ptr{c_CholmodSparse{Tv,$itype}}, Ptr{Uint8}),
+                  typ, &l, &b, cmn(l))
+        end
     end
 end
 chm_analyze(ap::Ptr{c_CholmodSparse}) = chm_analyze(unsafe_ref(ap))
 chm_analyze(A::CholmodSparse) = chm_analyze(A.c)
-chm_analyze(A::SparseMatrixCSC) = chm_analyze(CholmodSparse(A).c) 
+chm_analyze(A::SparseMatrixCSC) = chm_analyze(CholmodSparse(A).c)
 
-function chm_factorize{Tv<:CHMVTypes,Ti<:CHMITypes}(ap::Ptr{c_CholmodSparse{Tv,Ti}},lp::Ptr{c_CholmodFactor{Tv,Ti}})
-    chm_factorize(unsafe_ref{ap}, unsafe_ref{lp})
-end
-function chm_factorize{Tv<:CHMVTypes,Ti<:CHMITypes}(A::CholmodSparse{Tv,Ti},lp::Ptr{c_CholmodFactor{Tv,Ti}})
-    chm_factorize(A.c,unsafe_ref(lp))
-end
-function chm_factorize{Tv<:CHMVTypes,Ti<:CHMITypes}(A::CholmodSparse{Tv,Ti},L::c_CholmodFactor{Tv,Ti})
-    chm_factorize(A.c,unsafe_ref(lp))
-end
-function chm_factorize(a::c_CholmodSparse)
-    lp = chm_analyze(a)
-    chm_factorize(a, unsafe_ref(lp))
-    CholmodFactor(lp)
-end
-chm_factorize(A::SparseMatrixCSC) = chm_factorize(CholmodSparse(A).c)
 chm_factorize(A::CholmodSparse) = chm_factorize(A.c)
+chm_factorize(A::SparseMatrixCSC) = chm_factorize(CholmodSparse(A).c)
 
-type c_CholmodTriplet{Tv<:CHMVTypes,Ti<:CHMITypes}
-    m::Int
-    n::Int
-    nzmax::Int
-    nnz::Int
-    i::Ptr{Ti}
-    j::Ptr{Ti}
-    x::Ptr{Tv}
-    z::Ptr{Void}
-    stype:Int32
-    itype::Int32
-    xtype::Int32
-    dtype::Int32
+function chm_solve{T<:CHMVTypes}(l::c_CholmodFactor{T},b::c_CholmodDense{T})
+    chm_solve(l,b,CHOLMOD_A)
+end
+function chm_solve{T<:CHMVTypes}(L::CholmodFactor{T},B::CholmodDense{T})
+    chm_solve(L.c,B.c,CHOLMOD_A)
 end
 
-type CholmodTriplet{Tv<:CHMVTypes,Ti<:CHMITypes}
-    c::c_CholmodTriplet{Tv,Ti}
-    i::Vector{Ti}
-    j::Vector{Ti}
-    x::Vector{Tv}
+function chm_spsolve{Tv<:CHMVTypes,Ti<:CHMITypes}(l::c_CholmodFactor{Tv,Ti},
+                                                  b::c_CholmodSparse{Tv,Ti})
+    chm_spsolve(l,b,CHOLMOD_A)
+end
+function chm_spsolve{Tv<:CHMVTypes,Ti<:CHMITypes}(L::CholmodFactor{Tv,Ti},
+                                                  B::CholmodSparse{Tv,Ti})
+    chm_spsolve(L.c,B.c,CHOLMOD_A)
 end
 
-if false  
-    for (fac,den,sp,trip,itype) in
-        ((:cholmod_free_factor,:cholmod_free_sparse,:cholmod_free_triplet,:Int32),
-         (:cholmod_l_free_factor,:cholmod_l_free_sparse,:cholmod_l_free_triplet,:Int64))
-        @eval begin
-            function chm_free{Tv<:CHMVTypes}(l::c_CholmodFactor{Tv,$itype})
-                status = ccall(($(string(fac)), :libcholmod), Int32,
-                               (Ptr{Ptr{c_CholmodFactor{Tv,$itype}}}, Ptr{Uint8}), [&l], cmn(l))
-                if status != CHOLMOD_TRUE throw(CholmodException) end
-            end
-            function chm_free{Tv<:CHMVTypes}(s::c_CholmodSparse{Tv,$itype})
-                status = ccall(($(string(sp)), :libcholmod), Int32,
-                               (Ptr{Ptr{c_CholmodSparse{Tv,$itype}}}, Ptr{Uint8}), [&s], cmn(s))
-                if status != CHOLMOD_TRUE throw(CholmodException) end
-            end
-            function chm_free{Tv<:CHMVTypes}(t::c_CholmodTriplet{Tv,$itype})
-                status = ccall(($(string(trip)), :libcholmod), Int32,
-                               (Ptr{Ptr{c_CholmodTriplet{Tv,$itype}}}, Ptr{Uint8}), [&t], cmn(t))
-                if status != CHOLMOD_TRUE throw(CholmodException) end
-            end
-        end
-    end
-    chm_free(lp::Ptr{CholmodFactor}) = chm_free(unsafe_ref{lp})
-    chm_free(sp::Ptr{CholmodSparse}) = chm_free(unsafe_ref{sp})
-    chm_free(tp::Ptr{CholmodTriplet}) = chm_free(unsafe_ref{tp})
-end
 end #module
