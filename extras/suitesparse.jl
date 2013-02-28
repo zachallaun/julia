@@ -674,11 +674,6 @@ function chm_aat{Tv<:CHMVTypes,Ti<:Int32}(A::CholmodSparse{Tv,Ti})
 end
 chm_aat(A::SparseMatrixCSC) = chm_aat(CholmodSparse(A))
 
-
-cmn{Tv<:CHMVTypes,Ti<:CHMITypes}(L::CholmodFactor{Tv,Ti}) = cmn(one(Ti))
-cmn{Tv<:CHMVTypes,Ti<:CHMITypes}(l::c_CholmodFactor{Tv,Ti}) = cmn(one(Ti))
-cmn{Tv<:CHMVTypes,Ti<:CHMITypes}(lp::Ptr{c_CholmodFactor{Tv,Ti}}) = cmn(one(Ti))
-
 function CholmodFactor{Tv<:CHMVTypes,Ti<:CHMITypes}(cp::Ptr{c_CholmodFactor{Tv,Ti}})
     cfp = unsafe_ref(cp)
     Perm = pointer_to_array(cfp.Perm, (cfp.n,), true)
@@ -812,11 +807,9 @@ end
 function chm_copy_fac{Tv<:CHMVTypes,Ti<:CHMITypes}(L::CholmodFactor{Tv,Ti})
     CholmodFactor(chm_copy_fac(L.c))
 end
-
 function chm_fac_to_sp{Tv<:CHMVTypes,Ti<:CHMITypes}(L::CholmodFactor{Tv,Ti})
     CholmodSparse(chm_fac_to_sp(L.c))
 end
-
 function chm_fac_xtype!{Tv<:CHMVTypes,Ti<:CHMITypes}(L::CholmodFactor{Tv,Ti},to_xtype)
     chm_fac_xtype(L.c,to_xtype)
 end
