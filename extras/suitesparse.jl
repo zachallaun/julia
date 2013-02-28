@@ -24,6 +24,7 @@ export ChmCommon,
        chm_sort,
        chm_speye,
        chm_spsolve,
+       chm_sp_to_tr,
        chm_zeros,
        decrement,
        decrement!,
@@ -37,6 +38,7 @@ import Base.(\)
 import Base.Ac_ldiv_B
 import Base.At_ldiv_B
 import Base.SparseMatrixCSC
+import Base.findn_nzs
 import Base.nnz
 import Base.show
 import Base.size
@@ -383,30 +385,6 @@ type CholmodDense{T<:CHMVTypes}
     mat::Matrix{T}
 end
 
-type c_CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
-    m::Int
-    n::Int
-    nzmax::Int
-    ppt::Ptr{Ti}
-    ipt::Ptr{Ti}
-    nzpt::Ptr{Void}
-    xpt::Ptr{Tv}
-    zpt::Ptr{Void}
-    stype::Int32
-    itype::Int32
-    xtype::Int32
-    dtype::Int32
-    sorted::Int32
-    packed::Int32
-end
-
-type CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
-    c::c_CholmodSparse{Tv,Ti}
-    colptr0::Vector{Ti}
-    rowval0::Vector{Ti}
-    nzval::Vector{Tv}
-end
-
 type c_CholmodFactor{Tv<:CHMVTypes,Ti<:CHMITypes}
     n::Int
     minor::Int
@@ -452,6 +430,30 @@ type CholmodFactor{Tv<:CHMVTypes,Ti<:CHMITypes}
     pi::Vector{Ti}
     px::Vector{Tv}
     s::Vector{Ti}
+end
+
+type c_CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
+    m::Int
+    n::Int
+    nzmax::Int
+    ppt::Ptr{Ti}
+    ipt::Ptr{Ti}
+    nzpt::Ptr{Void}
+    xpt::Ptr{Tv}
+    zpt::Ptr{Void}
+    stype::Int32
+    itype::Int32
+    xtype::Int32
+    dtype::Int32
+    sorted::Int32
+    packed::Int32
+end
+
+type CholmodSparse{Tv<:CHMVTypes,Ti<:CHMITypes}
+    c::c_CholmodSparse{Tv,Ti}
+    colptr0::Vector{Ti}
+    rowval0::Vector{Ti}
+    nzval::Vector{Tv}
 end
 
 type c_CholmodTriplet{Tv<:CHMVTypes,Ti<:CHMITypes}
@@ -812,6 +814,50 @@ function chm_fac_to_sp{Tv<:CHMVTypes,Ti<:CHMITypes}(L::CholmodFactor{Tv,Ti})
 end
 function chm_fac_xtype!{Tv<:CHMVTypes,Ti<:CHMITypes}(L::CholmodFactor{Tv,Ti},to_xtype)
     chm_fac_xtype(L.c,to_xtype)
+end
+
+function CholmodTriplet{Tv<:CHMVTypes,Ti<:CHMITypes}(tp::Ptr{c_CholmodTriplet{Tv,Ti}})
+    ctp = unsafe_ref(tp)
+    i = pointer_to_array(ctp.i, (ctp.nnz,), true)
+    j = pointer_to_array(ctp.j, (ctp.nnz,), true)    
+    x = pointer_to_array(ctp.x, (ctp.x == C_NULL ? 0 : ctp.nnz), true)
+    ct = CholmodTriplet{Tv,Ti}(ctp, i, j, x)
+    c_free(tp)
+    ct
+end
+    
+for (s2t,itype) in
+    ((:cholmod_sparse_to_triplet, :Int32),
+     (:cholmod_l_sparse_to_triplet, :Int64))
+    @eval begin
+        function chm_sp_to_tr{Tv<:CHMVTypes}(a::c_CholmodSparse{Tv,$itype})
+            ccall(($(string(s2t)), :libcholmod), Ptr{c_CholmodTriplet{Tv,$itype}},
+                  (Ptr{c_CholmodSparse{Tv,$itype}}, Ptr{Uint8}), &a, chm(a))
+        end
+    end
+end
+chm_sp_to_tr(A::CholmodSparse) = chm_sp_to_tr(A.c)
+
+function findn_nzs{Tv,Ti}(A::CholmodSparse{Tv,Ti})
+    jj = similar(A.rowval0)             # expand A.colptr0 to a vector of indices
+    for j in 1:A.c.n, k in (A.colptr0[j]+1):A.colptr0[j+1]
+        jj[k] = j
+    end
+
+    ind = similar(A.rowval0)
+    ipos = 1
+    count = 0
+    for k in 1:length(A.nzval)
+        if A.nzval[k] != 0
+            ind[ipos] = k
+            ipos += 1
+            count += 1
+        else
+            println("Warning: sparse matrix contains explicitly stored zeros.")
+        end
+    end
+    ind = ind[1:count]                  # ind is the indices of nonzeros in A.nzval
+    (increment!(A.rowval0[ind]), jj[ind], A.nzval[ind])
 end
  
 end #module
