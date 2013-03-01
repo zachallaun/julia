@@ -136,6 +136,9 @@ include("sort.jl")
 importall Sort
 include("combinatorics.jl")
 
+# basic data structures
+include("datastructures.jl")
+
 # distributed arrays and memory-mapped arrays
 #include("darray.jl")
 include("darray2.jl")

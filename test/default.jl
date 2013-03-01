@@ -24,6 +24,7 @@ runtests("functional")
 runtests("bigint")
 runtests("sorting")
 runtests("statistics")
+runtests("priorityqueue")
 
 # io, etc.
 runtests("iostring")
