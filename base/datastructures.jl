@@ -4,10 +4,12 @@ module DataStructures
 import
     Base.assign,
     Base.done,
+    Base.get,
     Base.has,
     Base.isempty,
     Base.length,
     Base.next,
+    Base.ref,
     Base.start,
     Sort.Forward,
     Sort.Ordering,
@@ -132,7 +134,7 @@ type PriorityQueue{K,V} <: Associative{K,V}
     o::Ordering
 
     # Map elements to their index is xs
-    index::Dict{K, Int}
+    index::Dict
 
     function PriorityQueue(o::Ordering)
         new(Array((V, Int, K), 0), o, Dict{K, Int}())
@@ -230,9 +232,14 @@ function percolate_up!(pq::PriorityQueue, i::Integer)
 end
 
 
-function ref{K,V}(pq::PriorityQueue{K,V}, key::K)
-    priority, _, _  = pq.xs[pq.index[key]]
-    priority
+function ref{K,V}(pq::PriorityQueue{K,V}, key)
+    pq.xs[pq.index[key]][2]
+end
+
+
+function get{K,V}(pq::PriorityQueue{K,V}, key, deflt)
+    i = get(pq.index, key, 0)
+    i == 0 ? deflt : pq.xs[i][2]
 end
 
 
@@ -273,6 +280,7 @@ function dequeue!(pq::PriorityQueue)
         pq.index[pq.xs[1][1]] = 1
         percolate_down!(pq, 1)
     end
+    delete!(pq.index, x[1])
     x[1]
 end
 
