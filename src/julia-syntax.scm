@@ -244,43 +244,78 @@
 	(else
 	 (error "malformed type parameter list"))))
 
-(define (keywords-method-def-expr name sparams argl body)
-  (let* ((kargl (cdar argl))
-         (pargl (cdr argl))
-         (vars (map cadr kargl))
-         (vals (map caddr kargl))
-         (keys (map (lambda (x)
-                      `(quote ,(if (and (pair? x) (eqv? (car x) |::|))
-                                   (cadr x)
-                                   x)))
-                    vars))
-         (accepts-all (and (pair? pargl)
-                           (eqv? (arg-type (car pargl)) 'Keywords)))
-         (kw (if accepts-all (arg-name (car pargl)) (gensy)))
-         (setvars (map (lambda (x k v)
-                         `(= ,x (call (top get) ,kw ,k ,v)))
-                       vars keys vals)))
-    (if accepts-all
-        (method-def-expr- name sparams pargl `(block ,@setvars ,@(cdr body)))
-        (let ((chkkeys
-               (let ((g (gensy)) (i (gensy)) (j (gensy)))
-                 `(block (= ,g (call (top Set) ,@keys))
-                         (for (= (tuple ,i ,j) ,kw)
-                              (if (call (top !) (call (top has) ,g ,i))
-                                  (call (top error) "unrecognized keyword " ,i)))))))
-          `(block ,(method-def-expr- name sparams (cons `(:: ,kw Keywords) pargl)
-                                     `(block ,@chkkeys ,@setvars ,@(cdr body)))
-                  ,(method-def-expr- name sparams pargl
-                                     `(block ,@kargl ,@(cdr body))))))))
+(define (opt-var opt)
+  (cadr opt))
+
+(define (opt-val opt)
+  (caddr opt))
+
+(define (opt-name opt)
+  (let ((var (opt-var opt)))
+  (if (and (pair? var) (eqv? (car var) |::|))
+      (cadr var)
+      var)))
+
+(define (sort f l)
+  (if (or (null? l) (null? (cdr l))) l
+      (let ((piv (car l)))
+        (receive (less grtr)
+                 (separate (lambda (x) (< (f x) (f piv))) (cdr l))
+                 (nconc (simple-sort less)
+                        (list piv)
+                        (simple-sort grtr))))))
+
+(define (sort-options opts)
+  (sort opt-name opts))
+
+(define (opt-func-name name sorted-opts)
+  (let ((syms (cons name (map opt-name sorted-opts))))
+    (symbol (string.join (map string syms) "__"))))
+
+(define (all-splits l) (all-splits- (reverse l) '((()))))
+(define (all-splits- hs ts)
+  (if (null? hs)
+      ts
+      (let ((h (car hs)))
+        (all-splits- (cdr hs)
+          (append (map (lambda (x) (cons (cons h (car x)) (cdr x))) ts)
+                  (map (lambda (x) (cons (car x) (cons h (cdr x)))) ts))))))
+
+(define (opt-func-args split)
+  (let ((a (map (lambda (x) `(= ,(opt-name x) ,(opt-name x))) (car split)))
+        (b (map (lambda (x) `(= ,(opt-name x) ,(opt-val x))) (cdr split))))
+    (map opt-val (sort-options (append a b)))))
+
+(define (pass-through-arg-name v)
+  (cond ((and (symbol? v) (not (eq? v 'true)) (not (eq? v 'false)))
+	 v)
+	((not (pair? v))
+	 (error (string "malformed function arguments " v)))
+	(else
+	 (case (car v)
+	   ((...)         `(... ,(decl-var (cadr v))))
+	   ((= keyword)   (decl-var (caddr v)))
+	   ((|::|)        (decl-var v))
+	   (else (error (string "malformed function argument " v)))))))
+
+(define (option-method-def-expr name sparams opts argl body)
+  (let* ((sopts (sort-options opts))
+         (fullfunc (opt-func-name name sopts))
+         (splits (all-splits sopts)))
+    `(block ,@(map (lambda (split)
+                     (method-def-expr
+                       (opt-func-name name (car split))
+                       sparams
+                       (append (map opt-var (car split)) argl)
+                       (if (null? (cdr split))
+                           body
+                           `(block
+                              (call ,fullfunc
+                                    ,@(opt-func-args split)
+                                    ,@(map pass-through-arg-name argl))))))
+                   splits))))
 
 (define (method-def-expr name sparams argl body)
-  (if (and (pair? argl)
-           (pair? (car argl))
-           (eqv? (caar argl) 'keywords))
-      (keywords-method-def-expr name sparams argl body)
-      (method-def-expr- name sparams argl body)))
-
-(define (method-def-expr- name sparams argl body)
   (if (has-dups (llist-vars argl))
       (error "function argument names not unique"))
   (if (not (symbol? name))
@@ -520,6 +555,14 @@
 ;; patterns that introduce lambdas
 (define binding-form-patterns
   (pattern-set
+   ;; option function with static parameters
+   (pattern-lambda (function (call (curly name . sparams) (options . opts) . argl) body)
+		   (option-method-def-expr name sparams opts (fix-arglist argl) body))
+
+   ;; option function definition
+   (pattern-lambda (function (call name (options . opts) . argl) body)
+		   (option-method-def-expr name '() opts (fix-arglist argl) body))
+
    ;; function with static parameters
    (pattern-lambda (function (call (curly name . sparams) . argl) body)
 		   (method-def-expr name sparams (fix-arglist argl) body))
@@ -938,6 +981,13 @@
 					    (tuple-wrap (cdr a) '())))
 				 (tuple-wrap (cdr a) (cons x run))))))
 		     `(call (top apply) ,f ,@(tuple-wrap argl '()))))
+
+   ;; options syntax
+   (pattern-lambda (call f (options . opts) . args)
+                   (let ((sopts (sort-options opts)))
+                     `(call ,(opt-func-name f sopts)
+                            ,@(map opt-val sopts)
+                            ,@args)))
 
    ; tuple syntax (a, b...)
    ; note, directly inside tuple ... means Vararg type

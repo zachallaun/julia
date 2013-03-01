@@ -1125,16 +1125,16 @@
 	     ((#\newline)   (reverse! (cons e exprs)))
 	     (else          (loop (cons e exprs)))))))))
 
-(define (separate-keywords argl)
+(define (separate-optional word sym argl)
   (receive
    (kws args) (separate (lambda (x)
-			  (and (assignment? x)
+			  (and (and (pair? x) (eq? (car x) sym))
 			       (or (symbol? (cadr x))
                                    (assertion? (cadr x)))))
 			argl)
    (if (null? kws)
        args
-       `((keywords ,@kws) ,@args))))
+       `((,word ,@kws) ,@args))))
 
 ; handle function call argument list, or any comma-delimited list.
 ; . an extra comma at the end is allowed
@@ -1151,8 +1151,9 @@
 	  (begin (take-token s)
 		 (let ((lst (reverse lst)))
 		   (if (eqv? closer #\) )
-		       (separate-keywords lst)
-		       lst)))
+		       (separate-optional 'options '=
+                        (separate-optional 'keywords '=> lst))
+		        lst)))
 	  (if (equal? t #\;)
 	      (begin (take-token s)
 		     (if (equal? (peek-token s) closer)
