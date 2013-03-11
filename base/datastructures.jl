@@ -2,14 +2,14 @@
 module DataStructures
 
 import
-    Base.assign,
+    Base.setindex!,
     Base.done,
     Base.get,
     Base.has,
     Base.isempty,
     Base.length,
     Base.next,
-    Base.ref,
+    Base.getindex,
     Base.start,
     Sort.Forward,
     Sort.Ordering,
@@ -232,7 +232,7 @@ function percolate_up!(pq::PriorityQueue, i::Integer)
 end
 
 
-function ref{K,V}(pq::PriorityQueue{K,V}, key)
+function getindex{K,V}(pq::PriorityQueue{K,V}, key)
     pq.xs[pq.index[key]][2]
 end
 
@@ -244,7 +244,7 @@ end
 
 
 # Change the priority of an existing element, or equeue it if it isn't present.
-function assign{K,V}(pq::PriorityQueue{K, V}, value, key)
+function setindex!{K,V}(pq::PriorityQueue{K, V}, value, key)
     if has(pq, key)
         i = pq.index[key]
         _, oldvalue = pq.xs[i]
