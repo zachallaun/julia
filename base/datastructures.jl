@@ -137,12 +137,10 @@ type PriorityQueue{K,V} <: Associative{K,V}
     index::Dict
 
     function PriorityQueue(o::Ordering)
-        new(Array((V, Int, K), 0), o, Dict{K, Int}())
+        new(Array((K, V), 0), o, Dict{K, Int}())
     end
 
-    function PriorityQueue()
-        PriorityQueue(Forward())
-    end
+    PriorityQueue() = PriorityQueue{K,V}(Forward())
 
     function PriorityQueue(ks::AbstractArray{K}, vs::AbstractArray{V},
                            o::Ordering)
