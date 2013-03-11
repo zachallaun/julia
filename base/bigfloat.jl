@@ -1,10 +1,12 @@
-type BigFloat <: FloatingPoint
+BigFloat_clear(mpf::Vector{Int32}) = ccall((:__gmpf_clear, :libgmp), Void, (Ptr{Void},), mpf)
+
+immutable BigFloat <: FloatingPoint
     mpf::Vector{Int32}
     function BigFloat() 
         z = Array(Int32, 6)
         ccall((:__gmpf_init,:libgmp), Void, (Ptr{Void},), z)
         b = new(z)
-        finalizer(b, BigFloat_clear)
+        finalizer(b.mpf, BigFloat_clear)
         return b
     end
 end
@@ -62,8 +64,11 @@ convert(::Type{BigFloat}, x::Rational) = BigFloat(x) # to resolve ambiguity
 convert(::Type{BigFloat}, x::Real) = BigFloat(x)
 
 convert(::Type{Float64}, x::BigFloat) = ccall((:__gmpf_get_d,:libgmp), Float64, (Ptr{Void},), x.mpf)
+convert(::Type{FloatingPoint}, x::BigInt) = BigFloat(x)
 
 promote_rule{T<:Union(Integer,FloatingPoint)}(::Type{BigFloat}, ::Type{T}) = BigFloat
+promote_rule{T<:FloatingPoint}(::Type{BigInt},::Type{T}) = BigFloat
+
 
 # mpf doesn't have inf or nan
 isnan(x::BigFloat) = false
@@ -106,6 +111,9 @@ function ^(x::BigFloat, y::Uint)
     return z
 end
 
+^(x::Float32, y::BigInt) = BigFloat(x)^y
+^(x::Float64, y::BigInt) = BigFloat(x)^y
+
 ==(x::BigFloat, y::BigFloat) = cmp(x,y) == 0
 <=(x::BigFloat, y::BigFloat) = cmp(x,y) <= 0
 >=(x::BigFloat, y::BigFloat) = cmp(x,y) >= 0
@@ -125,7 +133,3 @@ end
 
 show(io::IO, b::BigFloat) = print(io, string(b))
 showcompact(io::IO, b::BigFloat) = print(io, string(b))
-
-function BigFloat_clear(x::BigFloat)
-    ccall((:__gmpf_clear, :libgmp), Void, (Ptr{Void},), x.mpf)
-end

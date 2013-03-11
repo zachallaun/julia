@@ -59,16 +59,6 @@ function tril(B::BitMatrix, k::Int)
 end
 tril(B::BitMatrix, k::Integer) = tril(B, int(k))
 
-## Matrix multiplication and division
-#
-for f in (:/, :\)
-    @eval begin
-        ($f)(A::BitArray, B::BitArray) = ($f)(bitunpack(A), bitunpack(B))
-        ($f)(A::BitArray, B::AbstractArray) = ($f)(bitunpack(A), B)
-        ($f)(A::AbstractArray, B::BitArray) = ($f)(A, bitunpack(B))
-    end
-end
-
 # TODO: improve this!
 (*)(A::BitArray, B::BitArray) = bitpack(bitunpack(A) * bitunpack(B))
 (*)(A::BitArray, B::Array{Bool}) = bitpack(bitunpack(A) * B)
@@ -224,7 +214,7 @@ end
 
 function findmax(a::BitArray)
     if length(a) == 0
-        return (false, 0)
+        error("findmax: array is empty")
     end
     m = false
     mi = 1
@@ -243,7 +233,7 @@ end
 
 function findmin(a::BitArray)
     if length(a) == 0
-        return (true, 0)
+        error("findmin: array is empty")
     end
     m = true
     mi = 1

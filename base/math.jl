@@ -6,7 +6,7 @@ export sin, cos, tan, sinh, cosh, tanh, asin, acos, atan,
        cosd, cotd, cscd, secd, sind, tand,
        acosd, acotd, acscd, asecd, asind, atand, atan2,
        radians2degrees, degrees2radians,
-       log, log2, log10, log1p, logb, exp, exp2, expm1, 
+       log, log2, log10, log1p, exponent, exp, exp2, expm1,
        cbrt, sqrt, square, erf, erfc, erfcx, erfi, dawson,
        ceil, floor, trunc, round, significand, 
        lgamma, hypot, gamma, lfact, max, min, ilogb, ldexp, frexp,
@@ -113,12 +113,12 @@ for f in (:sin, :cos, :tan, :asin, :acos, :acosh, :atanh, :log, :log2, :log10,
     end
 end
 
-for f in (:logb, :expm1, :significand)
+for (f,jlname) in ((:logb,:exponent), (:expm1,:expm1), (:significand,:significand))
     @eval begin
-        ($f)(x::Float64) = ccall(($(string(f)),libm), Float64, (Float64,), x)
-        ($f)(x::Float32) = ccall(($(string(f,"f")),libm), Float32, (Float32,), x)
-        ($f)(x::Integer) = ($f)(float(x))
-        @vectorize_1arg Real $f
+        ($jlname)(x::Float64) = ccall(($(string(f)),libm), Float64, (Float64,), x)
+        ($jlname)(x::Float32) = ccall(($(string(f,"f")),libm), Float32, (Float32,), x)
+        ($jlname)(x::Integer) = ($jlname)(float(x))
+        @vectorize_1arg Real $jlname
     end
 end
 
@@ -136,7 +136,7 @@ round(x::Float32) = ccall((:roundf, libm), Float32, (Float32,), x)
 floor(x::Float32) = ccall((:floorf, libm), Float32, (Float32,), x)
 @vectorize_1arg Real floor
 
-atan2(x::Real, y::Real) = atan2(float64(x), float64(y))
+atan2(x::Real, y::Real) = atan2(float(x), float(y))
 
 hypot(x::Float32, y::Float64) = hypot(float64(x), y)
 hypot(x::Float64, y::Float32) = hypot(x, float64(y))
@@ -179,8 +179,8 @@ function ilogb(x::Float32)
 end
 @vectorize_1arg Real ilogb
 
-ldexp(x::Float64,e::Int) = ccall((:ldexp,libm),  Float64, (Float64,Int32), x, int32(e))
-ldexp(x::Float32,e::Int) = ccall((:ldexpf,libm), Float32, (Float32,Int32), x, int32(e))
+ldexp(x::Float64,e::Int) = ccall((:scalbn,libm),  Float64, (Float64,Int32), x, int32(e))
+ldexp(x::Float32,e::Int) = ccall((:scalbnf,libm), Float32, (Float32,Int32), x, int32(e))
 # TODO: vectorize ldexp
 
 begin

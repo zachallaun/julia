@@ -1,20 +1,23 @@
-macro check_bit_operation(func, RetT, args)
-    quote
-        function tc(r1, r2)
-            if isa(r1, Tuple) && isa(r2, Tuple) && length(r1) == length(r2)
-                return all(map(x->tc(x...), [zip(r1,r2)...]))
-            elseif isa(r1,BitArray)
-                return isa(r2, Union(BitArray,Array{Bool}))
-            else
-                return typeof(r1) == typeof(r2)
-            end
-        end
-        r1 = ($func)($args...)
-        r2 = ($func)(map(x->(isa(x, BitArray) ? bitunpack(x) : x), $args)...)
-        @test isa(r1, $RetT)
-        @test tc(r1, r2)
-        @test isequal(r1, convert($RetT, r2))
+function tc(r1, r2)
+    if isa(r1, Tuple) && isa(r2, Tuple) && length(r1) == length(r2)
+        return all(map(x->tc(x...), [zip(r1,r2)...]))
+    elseif isa(r1,BitArray)
+        return isa(r2, Union(BitArray,Array{Bool}))
+    else
+        return typeof(r1) == typeof(r2)
     end
+end
+
+function check_bitop(func, RetT, args)
+    r1 = func(args...)
+    r2 = func(map(x->(isa(x, BitArray) ? bitunpack(x) : x), args)...)
+    @test isa(r1, RetT)
+    @test tc(r1, r2)
+    @test isequal(r1, convert(RetT, r2))
+end
+
+macro check_bit_operation(func, RetT, args)
+    :(check_bitop($func, $RetT, $args))
 end
 
 let t0 = time()
@@ -336,7 +339,7 @@ b2 = trues(n1, n2)
 @check_bit_operation div Matrix{Int} (i1, b2)
 @check_bit_operation mod Matrix{Int} (i1, b2)
 
-@check_bit_operation (./) Matrix{Float64} (u1, b2)
+@check_bit_operation (./) Matrix{Float32} (u1, b2)
 @check_bit_operation div Matrix{Uint8} (u1, b2)
 @check_bit_operation mod Matrix{Uint8} (u1, b2)
 
@@ -344,9 +347,9 @@ b2 = trues(n1, n2)
 @check_bit_operation div Matrix{Float64} (f1, b2)
 @check_bit_operation mod Matrix{Float64} (f1, b2)
 
-for x1 = {ci1, cu1, cf1}
-    @check_bit_operation (./) Matrix{Complex128} (x1, b2)
-end
+@check_bit_operation (./) Matrix{Complex128} (ci1, b2)
+@check_bit_operation (./) Matrix{Complex64 } (cu1, b2)
+@check_bit_operation (./) Matrix{Complex128} (cf1, b2)
 
 b2 = randbool(n1, n2)
 @check_bit_operation (.^) BitMatrix (false, b2)
@@ -407,7 +410,7 @@ cf2 = complex(f2)
 @check_bit_operation (+) Matrix{Uint8} (b1, u2)
 @check_bit_operation (-) Matrix{Uint8} (b1, u2)
 @check_bit_operation (.*) Matrix{Uint8} (b1, u2)
-@check_bit_operation (./) Matrix{Float64} (b1, u2)
+@check_bit_operation (./) Matrix{Float32} (b1, u2)
 @check_bit_operation div Matrix{Uint8} (b1, u2)
 @check_bit_operation mod Matrix{Uint8} (b1, u2)
 
@@ -426,7 +429,7 @@ cf2 = complex(f2)
 @check_bit_operation (+) Matrix{ComplexPair{Uint8}} (b1, cu2)
 @check_bit_operation (-) Matrix{ComplexPair{Uint8}} (b1, cu2)
 @check_bit_operation (.*) Matrix{ComplexPair{Uint8}} (b1, cu2)
-@check_bit_operation (./) Matrix{Complex128} (b1, cu2)
+@check_bit_operation (./) Matrix{Complex64} (b1, cu2)
 
 @check_bit_operation (+) Matrix{Complex128} (b1, cf2)
 @check_bit_operation (-) Matrix{Complex128} (b1, cf2)
@@ -443,7 +446,7 @@ cf2 = complex(f2)
 @check_bit_operation (.^) Matrix{Float64} (b1, 0.0)
 @check_bit_operation (.^) Matrix{Float64} (b1, 1.0)
 @check_bit_operation (.^) Matrix{Complex128} (b1, 0.0im)
-@check_bit_operation (.^) Matrix{Complex128} (b1, 0x0im)
+@check_bit_operation (.^) Matrix{Complex64 } (b1, 0x0im)
 @check_bit_operation (.^) Matrix{Complex128} (b1, 0im)
 
 b1 = trues(n1, n2)
@@ -451,7 +454,7 @@ b1 = trues(n1, n2)
 @check_bit_operation (.^) Matrix{Complex128} (b1, 1.0im)
 @check_bit_operation (.^) Matrix{Complex128} (b1, -1im)
 @check_bit_operation (.^) Matrix{Complex128} (b1, 1im)
-@check_bit_operation (.^) Matrix{Complex128} (b1, 0x1im)
+@check_bit_operation (.^) Matrix{Complex64 } (b1, 0x1im)
 
 timesofar("binary arithmetic")
 
@@ -517,6 +520,20 @@ b1 = randbool(v1)
 
 @check_bit_operation find Vector{Int} (b1,)
 
+b1 = trues(v1)
+for i = 0:v1-1
+    @test findfirst(b1 >> i) == i+1
+    @test Base.findfirstnot(~(b1 >> i)) == i+1
+end
+
+for i = 3:v1-1
+    for j = 2:i
+        submask = b1 << (v1-j+1)
+        @test findnext((b1 >> i) | submask,j) == i+1
+        @test Base.findnextnot((~(b1 >> i)) $ submask,j) == i+1
+    end
+end
+
 b1 = randbool(n1, n2)
 @check_bit_operation findn_nzs (Vector{Int}, Vector{Int}, BitArray) (b1,)
 
@@ -538,8 +555,6 @@ m2 = 3
 @check_bit_operation sum Int (b1,)
 
 b0 = falses(0)
-@check_bit_operation max Bool (b0,)
-@check_bit_operation min Bool (b0,)
 @check_bit_operation any Bool (b0,)
 @check_bit_operation all Bool (b0,)
 @check_bit_operation sum Int (b0,)

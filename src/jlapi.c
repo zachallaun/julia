@@ -64,9 +64,9 @@ DLLEXPORT void *jl_eval_string(char *str)
 #endif
     jl_value_t *r;
     JL_TRY {
-        jl_value_t *ast = jl_parse_string(str, 0, 1);
+        jl_value_t *ast = jl_parse_input_line(str);
         JL_GC_PUSH(&ast);
-        r = jl_toplevel_eval(jl_t0(ast));
+        r = jl_toplevel_eval(ast);
         JL_GC_POP();
     }
     JL_CATCH {
@@ -81,7 +81,7 @@ DLLEXPORT char *jl_typename_str(jl_value_t *v)
 {
     if (jl_is_tuple(v))
         return "Tuple";
-    return ((jl_tag_type_t*)v)->name->name->name;
+    return ((jl_datatype_t*)v)->name->name->name;
 }
 
 // get the name of typeof(v) as a string

@@ -1,9 +1,9 @@
 macro deprecate(old,new)
     if isa(old,Symbol)
-        oldname = expr(:quote,old)
-        newname = expr(:quote,new)
-        expr(:toplevel,
-            expr(:export,esc(old)),
+        oldname = Expr(:quote,old)
+        newname = Expr(:quote,new)
+        Expr(:toplevel,
+            Expr(:export,esc(old)),
             :(function $(esc(old))(args...)
                   warn_once(string($oldname," is deprecated, use ",$newname," instead."))
                   $(esc(new))(args...)
@@ -11,8 +11,8 @@ macro deprecate(old,new)
     elseif isa(old,Expr) && old.head == :call
         oldcall = sprint(io->show_unquoted(io,old))
         newcall = sprint(io->show_unquoted(io,new))
-        expr(:toplevel,
-            expr(:export,esc(old.args[1])),
+        Expr(:toplevel,
+            Expr(:export,esc(old.args[1])),
             :($(esc(old)) = begin
                   warn_once(string($oldcall," is deprecated, use ",$newcall," instead."))
                   $(esc(new))
@@ -136,10 +136,23 @@ for (fun,typ) in {(:randexp,:Exponential), (:randg,:Gamma), (:randbeta,:Beta), (
 @eval $fun(x...) = error($fun," is no longer supported, use the Distributions package instead:
 
     using Distributions
-    rand(",$(expr(:quote,typ)),"())
+    rand(",$(Expr(:quote,typ)),"())
 ")
 end
 
 # 0.2
 
 @deprecate  localize         localpart
+@deprecate  expr(hd, a...)   Expr(hd, a...)
+@deprecate  expr(hd, a::Array{Any,1}) Expr(hd, a...)
+@deprecate  logb                exponent
+@deprecate  ref_shape           index_shape
+@deprecate  assign_shape_check  setindex_shape_check
+
+# note removed macros: str, B_str, I_str, E_str, L_str, L_mstr, I_mstr, E_mstr
+
+# renamings
+const ref = getindex
+export ref
+const assign = setindex!
+export assign

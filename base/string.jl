@@ -51,12 +51,12 @@ convert(::Type{ByteString}, s::String) = bytestring(s)
 start(s::String) = 1
 done(s::String,i) = (i > endof(s))
 isempty(s::String) = done(s,start(s))
-ref(s::String, i::Int) = next(s,i)[1]
-ref(s::String, i::Integer) = s[int(i)]
-ref(s::String, x::Real) = s[to_index(x)]
-ref{T<:Integer}(s::String, r::Range1{T}) = s[int(first(r)):int(last(r))]
+getindex(s::String, i::Int) = next(s,i)[1]
+getindex(s::String, i::Integer) = s[int(i)]
+getindex(s::String, x::Real) = s[to_index(x)]
+getindex{T<:Integer}(s::String, r::Range1{T}) = s[int(first(r)):int(last(r))]
 # TODO: handle other ranges with stride ±1 specially?
-ref(s::String, v::AbstractVector) =
+getindex(s::String, v::AbstractVector) =
     sprint(length(v), io->(for i in v write(io,s[i]) end))
 
 symbol(s::String) = symbol(bytestring(s))
@@ -65,7 +65,7 @@ print(io::IO, s::String) = for c in s write(io, c) end
 write(io::IO, s::String) = print(io, s)
 show(io::IO, s::String) = print_quoted(io, s)
 
-(*)(s::Union(String,Char)...) = string(s...)
+(*)(s::String...) = string(s...)
 (^)(s::String, r::Integer) = repeat(s,r)
 
 length(s::DirectIndexString) = endof(s)
@@ -276,15 +276,17 @@ strwidth(s::ByteString) = ccall(:u8_strwidth, Int, (Ptr{Uint8},), s.data)
 
 isascii(c::Char) = c < 0x80
 
-for name = ("alnum", "alpha", "blank", "cntrl", "digit", "graph",
+for name = ("alnum", "alpha", "cntrl", "digit", "graph",
             "lower", "print", "punct", "space", "upper")
     f = symbol(string("is",name))
     @eval ($f)(c::Char) = bool(ccall($(string("isw",name)), Int32, (Char,), c))
 end
 
+isblank(c::Char) = c==' ' || c=='\t'
+
 ## generic string uses only endof and next ##
 
-type GenericString <: String
+immutable GenericString <: String
     string::String
 end
 
@@ -293,7 +295,7 @@ next(s::GenericString, i::Int) = next(s.string, i)
 
 ## plain old character arrays ##
 
-type CharString <: DirectIndexString
+immutable CharString <: DirectIndexString
     chars::Array{Char,1}
 
     CharString(a::Array{Char,1}) = new(a)
@@ -307,7 +309,7 @@ length(s::CharString) = length(s.chars)
 
 ## substrings reference original strings ##
 
-type SubString{T<:String} <: String
+immutable SubString{T<:String} <: String
     string::T
     offset::Int
     endof::Int
@@ -336,7 +338,7 @@ endof(s::SubString) = s.endof
 # can this be delegated efficiently somehow?
 # that may require additional string interfaces
 
-function ref(s::String, r::Range1{Int})
+function getindex(s::String, r::Range1{Int})
     if first(r) < 1 || endof(s) < last(r)
         error(BoundsError)
     end
@@ -345,7 +347,7 @@ end
 
 ## efficient representation of repeated strings ##
 
-type RepString <: String
+immutable RepString <: String
     string::String
     repeat::Integer
 end
@@ -373,7 +375,7 @@ convert(::Type{RepString}, s::String) = RepString(s,1)
 
 ## reversed strings without data movement ##
 
-type RevString <: String
+immutable RevString <: String
     string::String
 end
 
@@ -390,7 +392,7 @@ reverse(s::RevString) = s.string
 
 ## ropes for efficient concatenation, etc. ##
 
-type RopeString <: String
+immutable RopeString <: String
     head::String
     tail::String
     depth::Int32
@@ -487,7 +489,7 @@ end
 ## string escaping & unescaping ##
 
 escape_nul(s::String, i::Int) =
-    !done(s,i) && '0' <= next(s,i)[1] <= '7' ? L"\x00" : L"\0"
+    !done(s,i) && '0' <= next(s,i)[1] <= '7' ? "\\x00" : "\\0"
 
 isxdigit(c::Char) = '0'<=c<='9' || 'a'<=c<='f' || 'A'<=c<='F'
 need_full_hex(s::String, i::Int) = !done(s,i) && isxdigit(next(s,i)[1])
@@ -497,14 +499,14 @@ function print_escaped(io, s::String, esc::String)
     while !done(s,i)
         c, j = next(s,i)
         c == '\0'       ? print(io, escape_nul(s,j)) :
-        c == '\e'       ? print(io, L"\e") :
+        c == '\e'       ? print(io, "\\e") :
         c == '\\'       ? print(io, "\\\\") :
         contains(esc,c) ? print(io, '\\', c) :
         7 <= c <= 13    ? print(io, '\\', "abtnvfr"[int(c-6)]) :
         isprint(c)      ? print(io, c) :
-        c <= '\x7f'     ? print(io, L"\x", hex(c, 2)) :
-        c <= '\uffff'   ? print(io, L"\u", hex(c, need_full_hex(s,j) ? 4 : 2)) :
-                          print(io, L"\U", hex(c, need_full_hex(s,j) ? 8 : 4))
+        c <= '\x7f'     ? print(io, "\\x", hex(c, 2)) :
+        c <= '\uffff'   ? print(io, "\\u", hex(c, need_full_hex(s,j) ? 4 : 2)) :
+                          print(io, "\\U", hex(c, need_full_hex(s,j) ? 8 : 4))
         i = j
     end
 end
@@ -608,68 +610,20 @@ is_valid_utf8 (s::ByteString) = byte_string_classify(s) != 0
 check_ascii(s::ByteString) = is_valid_ascii(s) ? s : error("invalid ASCII sequence")
 check_utf8 (s::ByteString) = is_valid_utf8(s)  ? s : error("invalid UTF-8 sequence")
 
-## string interpolation parsing ##
-
-function interp_parse(s::String, unescape::Function, printer::Function)
-    sx = {}
-    i = j = start(s)
-    while !done(s,j)
-        c, k = next(s,j)
-        if c == '$'
-            if !isempty(s[i:j-1])
-                push!(sx, unescape(s[i:j-1]))
-            end
-            ex, j = parse(s,k,false)
-            if isa(ex,Expr) && is(ex.head,:continue)
-                throw(ParseError("incomplete expression"))
-            end
-            push!(sx, esc(ex))
-            i = j
-        elseif c == '\\' && !done(s,k)
-            if s[k] == '$'
-                if !isempty(s[i:j-1])
-                    push!(sx, unescape(s[i:j-1]))
-                end
-                i = k
-            end
-            c, j = next(s,k)
-        else
-            j = k
-        end
-    end
-    if !isempty(s[i:])
-        push!(sx, unescape(s[i:j-1]))
-    end
-    length(sx) == 1 && isa(sx[1],ByteString) ? sx[1] :
-        expr(:call, :sprint, printer, sx...)
-end
-
-interp_parse(s::String, u::Function) = interp_parse(s, u, print)
-interp_parse(s::String) = interp_parse(s, x->check_utf8(unescape_string(x)))
-
-function interp_parse_bytes(s::String)
-    writer(io,x...) = for w=x; write(io,w); end
-    interp_parse(s, unescape_string, writer)
-end
-
 ## multiline strings ##
 
-let
-global multiline_lstrip
-
-function space_width(c::Char)
+function blank_width(c::Char)
     c == ' '   ? 1 :
     c == '\t'  ? 8 :
-    isspace(c) ? 0 :
-    error("not a space-like character")
+    error("not a blank character")
 end
 
-# width of leading space, also check if string is blank
-function indent_width(s::String)
+# width of leading blank space, also check if string is blank
+function indentation(s::String)
     count = 0
     for c in s
-        if isspace(c)
-            count += space_width(c)
+        if isblank(c)
+            count += blank_width(c)
         else
             return count, false
         end
@@ -677,55 +631,78 @@ function indent_width(s::String)
     count, true
 end
 
-function multiline_lstrip(s::String)
-    lines = split(s, '\n')
-    num_lines = length(lines)
-    if num_lines == 1 return s end
-
-    # discard first line if blank
-    first_line = lstrip(lines[1]) == "" ? 2 : 1
-
-    indent,blank = indent_width(lines[end])
-    if !blank
-        indent = typemax(Int)
-        for line in lines[first_line:end]
-            n,blank = indent_width(line)
-            if !blank
-                indent = min(indent, n)
-            end
-        end
-    end
-
+function unindent(s::String, indent::Int)
     buf = memio(endof(s), false)
-    for k in first_line:num_lines
-        line = lines[k]
-        cut = 0
-        i = start(line)
-        while !done(line,i)
-            c, j = next(line,i)
-            if !isspace(c) || cut >= indent
+    a = i = start(s)
+    cutting = false
+    cut = 0
+    while !done(s,i)
+        c,i_ = next(s,i)
+        if cutting && isblank(c)
+            a = i_
+            cut += blank_width(c)
+            if cut > indent
+                cutting = false
                 for _ = (indent+1):cut write(buf, ' ') end
-                print(buf, line[i:end])
-                break
             end
-            cut += space_width(c)
-            i = j
+        elseif c == '\n'
+            print(buf, s[a:i])
+            a = i_
+            cutting = true
+            cut = 0
+        else
+            cutting = false
         end
-        if k != num_lines println(buf) end
+        i = i_
     end
+    print(buf, s[a:end])
     takebuf_string(buf)
 end
-end # let
+
+function triplequoted(args...)
+    sx = { isa(arg,ByteString) ? arg : esc(arg) for arg in args }
+
+    indent = 0
+    rlines = split(reverse(sx[end]), '\n', 2)
+    last_line = rlines[1]
+    if length(rlines) > 1 && lstrip(last_line) == ""
+        indent,_ = indentation(last_line)
+    else
+        indent = typemax(Int)
+        for s in sx
+            if isa(s,ByteString)
+                lines = split(s,'\n')
+                for line in lines[2:end]
+                    n,blank = indentation(line)
+                    if !blank
+                        indent = min(indent, n)
+                    end
+                end
+            end
+        end
+    end
+
+    for i in 1:length(sx)
+        if isa(sx[i],ByteString)
+            sx[i] = unindent(sx[i], indent)
+        end
+    end
+
+    # strip leading blank line
+    s = sx[1]
+    j = search(s,'\n')
+    if j != 0 && lstrip(s[1:j]) == ""
+        sx[1] = s[j+1:end]
+    end
+
+    length(sx) == 1 ? sx[1] : Expr(:call, :string, sx...)
+end
 
 ## core string macros ##
 
-macro   str(s); interp_parse(s); end
-macro  mstr(s); multiline_lstrip(s); end
-macro imstr(s); interp_parse(multiline_lstrip(s)); end
-macro I_str(s); interp_parse(s, x->unescape_chars(x,"\"")); end
-macro E_str(s); check_utf8(unescape_string(s)); end
-macro B_str(s); interp_parse_bytes(s); end
-macro b_str(s); ex = interp_parse_bytes(s); :(($ex).data); end
+macro b_str(s); :($(unescape_string(s)).data); end
+
+macro mstr(s...); triplequoted(s...); end
 
 ## shell-like command parsing ##
 
@@ -814,11 +791,11 @@ function shell_parse(raw::String, interp::Bool)
     end
 
     # construct an expression
-    exprs = {}
+    ex = Expr(:tuple)
     for arg in args
-        push!(exprs, expr(:tuple, arg))
+        push!(ex.args, Expr(:tuple, arg...))
     end
-    expr(:tuple,exprs)
+    ex
 end
 shell_parse(s::String) = shell_parse(s,true)
 
@@ -874,17 +851,24 @@ shell_escape(cmd::String, args::String...) =
 
 ## interface to parser ##
 
-function parse(str::String, pos::Int, greedy::Bool)
+function parse(str::String, pos::Int, greedy::Bool, err::Bool)
     # returns (expr, end_pos). expr is () in case of parse error.
     ex, pos = ccall(:jl_parse_string, Any,
                     (Ptr{Uint8}, Int32, Int32),
                     str, pos-1, greedy ? 1:0)
-    if isa(ex,Expr) && is(ex.head,:error)
+    if err && isa(ex,Expr) && is(ex.head,:error)
         throw(ParseError(ex.args[1]))
     end
-    if ex == (); throw(ParseError("end of input")); end
+    if ex == ()
+        if err
+            throw(ParseError("end of input"))
+        else
+            ex = Expr(:error, "end of input")
+        end
+    end
     ex, pos+1 # C is zero-based, Julia is 1-based
 end
+parse(str::String, pos::Int, greedy::Bool) = parse(str, pos, greedy, true)
 parse(str::String, pos::Int) = parse(str, pos, true)
 
 function parse(str::String)
